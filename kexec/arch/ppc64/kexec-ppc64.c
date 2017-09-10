@@ -890,6 +890,7 @@ int get_memory_ranges(struct memory_range **range, int *ranges,
 
 struct file_type file_type[] = {
 	{ "elf-ppc64", elf_ppc64_probe, elf_ppc64_load, elf_ppc64_usage },
+	{ "zImage", zImage_ppc64_probe, zImage_ppc64_load, zImage_ppc64_usage },
 };
 int file_types = sizeof(file_type) / sizeof(file_type[0]);
 

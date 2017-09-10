@@ -1,6 +1,9 @@
 #ifndef KEXEC_PPC64_H
 #define KEXEC_PPC64_H
 
+#include <fcntl.h>
+#include "../../kexec.h"
+
 #define PATH_LEN 256
 #define MAXBYTES 128
 #define MAX_LINE 160
@@ -23,6 +26,12 @@ int elf_ppc64_probe(const char *buf, off_t len);
 int elf_ppc64_load(int argc, char **argv, const char *buf, off_t len,
 	struct kexec_info *info);
 void elf_ppc64_usage(void);
+
+int zImage_ppc64_probe(FILE *file);
+int zImage_ppc64_load(FILE *file, int UNUSED(argc), char **UNUSED(argv),
+		      void **ret_entry, struct kexec_segment **ret_segments,
+		      int *ret_nr_segments);
+void zImage_ppc64_usage(void);
 
 struct mem_ehdr;
 unsigned long my_r2(const struct mem_ehdr *ehdr);
