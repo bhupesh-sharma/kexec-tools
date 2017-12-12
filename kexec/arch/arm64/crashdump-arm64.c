@@ -46,6 +46,8 @@ struct memory_ranges usablemem_rgns = {
 	.ranges = &crash_reserved_mem,
 };
 
+struct memory_range crashkernel_usablemem_ranges[CRASH_MAX_MEMORY_RANGES];
+
 struct memory_range elfcorehdr_mem;
 
 static struct crash_elf_info elf_info = {
@@ -132,6 +134,9 @@ int is_crashkernel_mem_reserved(void)
  */
 static int crash_get_memory_ranges(void)
 {
+	int i = 0;
+	int acpi_region_cnt = 0;
+
 	/*
 	 * First read all memory regions that can be considered as
 	 * system memory including the crash area.
@@ -167,6 +172,19 @@ static int crash_get_memory_ranges(void)
 	dbgprint_mem_range("ACPI reclaim memory ranges",
 			   acpi_reclaim_memory_rgns.ranges,
 			   acpi_reclaim_memory_rgns.size);
+
+	/*
+	 * Add the crashkernel range and ACPI reclaim region ranges to
+	 * the crashkernel_usablemem_ranges
+	 */
+	crashkernel_usablemem_ranges[0] = crash_reserved_mem;
+
+	acpi_region_cnt = acpi_reclaim_memory_rgns.size;
+	do {
+		crashkernel_usablemem_ranges[i] = acpi_reclaim_memory_ranges[i];
+		acpi_region_cnt--;
+		i++;
+	} while (acpi_region_cnt > 0);
 
 	/*
 	 * For additional kernel code/data segment.
