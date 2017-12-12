@@ -397,6 +397,8 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 	char *new_buf = NULL;
 	int new_size;
 	int result;
+	int acpi_region_cnt = 0;
+	int i = 0;
 
 	result = fdt_check_header(dtb->buf);
 
@@ -425,12 +427,14 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 			goto on_error;
 		}
 
-		if (!cells_size_fitted(address_cells, size_cells,
-					&crash_reserved_mem)) {
-			fprintf(stderr,
-				"kexec: usable memory range doesn't fit cells-size.\n");
-			result = -EINVAL;
-			goto on_error;
+		for (acpi_region_cnt = acpi_reclaim_memory_rgns.size, i = 0; acpi_region_cnt >= 0; acpi_region_cnt--, i++) {
+			if (!cells_size_fitted(address_cells, size_cells,
+						&crashkernel_usablemem_ranges[i])) {
+				fprintf(stderr,
+						"kexec: usable memory range doesn't fit cells-size.\n");
+				result = -EINVAL;
+				goto on_error;
+			}
 		}
 
 		/* duplicate dt blob */
@@ -462,16 +466,30 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 
 		/* add linux,usable-memory-range */
 		nodeoffset = fdt_path_offset(new_buf, "/chosen");
+#if 0	
+		for (acpi_region_cnt = acpi_reclaim_memory_rgns.size, i = 0; acpi_region_cnt >= 0; acpi_region_cnt--, i++) {
+			result = fdt_setprop_range(new_buf, nodeoffset,
+					PROP_USABLE_MEM_RANGE, &crashkernel_usablemem_ranges[i],
+					address_cells, size_cells);
+			if (result) {
+				dbgprintf("%s: fdt_setprop failed: %s\n", __func__,
+						fdt_strerror(result));
+				result = -EINVAL;
+				goto on_error;
+			}
+		} 
+#else
 		result = fdt_setprop_range(new_buf, nodeoffset,
 				PROP_USABLE_MEM_RANGE, &crash_reserved_mem,
 				address_cells, size_cells);
 		if (result) {
 			dbgprintf("%s: fdt_setprop failed: %s\n", __func__,
-				fdt_strerror(result));
+					fdt_strerror(result));
 			result = -EINVAL;
 			goto on_error;
 		}
 
+#endif
 		fdt_pack(new_buf);
 		dtb->buf = new_buf;
 		dtb->size = fdt_totalsize(new_buf);

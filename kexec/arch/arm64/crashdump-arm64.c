@@ -134,7 +134,7 @@ int is_crashkernel_mem_reserved(void)
  */
 static int crash_get_memory_ranges(void)
 {
-	int i = 0;
+	int i = 1;
 	int acpi_region_cnt = 0;
 
 	/*
@@ -180,12 +180,16 @@ static int crash_get_memory_ranges(void)
 	crashkernel_usablemem_ranges[0] = crash_reserved_mem;
 
 	acpi_region_cnt = acpi_reclaim_memory_rgns.size;
+	printf("BHUPESH, acpi_region_cnt=%d\n", acpi_region_cnt);
 	do {
-		crashkernel_usablemem_ranges[i] = acpi_reclaim_memory_ranges[i];
+		crashkernel_usablemem_ranges[i] = acpi_reclaim_memory_ranges[i - 1];
 		acpi_region_cnt--;
 		i++;
 	} while (acpi_region_cnt > 0);
 
+	dbgprint_mem_range("crashkernel memory ranges",
+			   crashkernel_usablemem_ranges,
+			   4);
 	/*
 	 * For additional kernel code/data segment.
 	 * kern_paddr_start/kern_size are determined in iomem_range_callback
@@ -230,6 +234,13 @@ int load_crashdump_segments(struct kexec_info *info)
 
 	err = crash_create_elf64_headers(info, &elf_info,
 			system_memory_rgns.ranges, system_memory_rgns.size,
+			&buf, &bufsz, ELF_CORE_HEADER_ALIGN);
+
+	if (err)
+		return EFAILED;
+
+	err = crash_create_elf64_headers(info, &elf_info,
+			acpi_reclaim_memory_rgns.ranges, acpi_reclaim_memory_rgns.size,
 			&buf, &bufsz, ELF_CORE_HEADER_ALIGN);
 
 	if (err)
