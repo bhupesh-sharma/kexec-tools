@@ -6,5 +6,6 @@
 #define KERNEL_DATA		"Kernel data\n"
 #define CRASH_KERNEL		"Crash kernel\n"
 #define IOMEM_RESERVED		"reserved\n"
+#define ACPI_RECLAIM_REGION	"ACPI reclaim region\n"
 
 #endif

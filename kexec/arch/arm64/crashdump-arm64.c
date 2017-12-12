@@ -32,6 +32,13 @@ static struct memory_ranges system_memory_rgns = {
 };
 
 /* memory range reserved for crashkernel */
+struct memory_range acpi_reclaim_memory_ranges[CRASH_MAX_MEMORY_RANGES];
+struct memory_ranges acpi_reclaim_memory_rgns = {
+	.size = 0,
+	.max_size = CRASH_MAX_MEMORY_RANGES,
+	.ranges = acpi_reclaim_memory_ranges,
+};
+
 struct memory_range crash_reserved_mem;
 struct memory_ranges usablemem_rgns = {
 	.size = 0,
@@ -95,6 +102,9 @@ static int iomem_range_callback(void *UNUSED(data), int UNUSED(nr),
 	else if (strncmp(str, SYSTEM_RAM, strlen(SYSTEM_RAM)) == 0)
 		return mem_regions_add(&system_memory_rgns,
 				       base, length, RANGE_RAM);
+	else if (strncmp(str, ACPI_RECLAIM_REGION, strlen(SYSTEM_RAM)) == 0)
+		return mem_regions_add(&acpi_reclaim_memory_rgns,
+				       base, length, RANGE_RAM);
 	else if (strncmp(str, KERNEL_CODE, strlen(KERNEL_CODE)) == 0)
 		elf_info.kern_paddr_start = base;
 	else if (strncmp(str, KERNEL_DATA, strlen(KERNEL_DATA)) == 0)
@@ -148,6 +158,15 @@ static int crash_get_memory_ranges(void)
 
 	dbgprint_mem_range("Coredump memory ranges",
 			   system_memory_rgns.ranges, system_memory_rgns.size);
+
+	/*
+	 * Make sure that the acpi reclaim regions are sorted.
+	 */
+	mem_regions_sort(&acpi_reclaim_memory_rgns);
+
+	dbgprint_mem_range("ACPI reclaim memory ranges",
+			   acpi_reclaim_memory_rgns.ranges,
+			   acpi_reclaim_memory_rgns.size);
 
 	/*
 	 * For additional kernel code/data segment.
