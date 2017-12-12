@@ -18,6 +18,8 @@
 
 extern struct memory_ranges usablemem_rgns;
 extern struct memory_range crash_reserved_mem;
+extern struct memory_ranges acpi_reclaim_memory_rgns;
+extern struct memory_range crashkernel_usablemem_ranges[CRASH_MAX_MEMORY_RANGES];
 extern struct memory_range elfcorehdr_mem;
 
 extern int load_crashdump_segments(struct kexec_info *info);

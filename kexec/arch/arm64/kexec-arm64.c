@@ -10,6 +10,7 @@
 #include <inttypes.h>
 #include <libfdt.h>
 #include <limits.h>
+#include <libfdt_internal.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <linux/elf-em.h>
@@ -385,6 +386,246 @@ static int fdt_setprop_range(void *fdt, int nodeoffset,
 	return result;
 }
 
+static int fdt_appendprop_range(void *fdt, int nodeoffset,
+				const char *name, struct memory_range *range,
+				uint32_t address_cells, uint32_t size_cells)
+{
+	void *buf, *prop;
+	size_t buf_size;
+	int result;
+
+	buf_size = (address_cells + size_cells) * sizeof(uint32_t);
+	prop = buf = xmalloc(buf_size + 16);
+
+	fill_property(prop, range->start, address_cells);
+	prop += address_cells * sizeof(uint32_t);
+
+	fill_property(prop, range->end - range->start + 1, size_cells);
+	prop += size_cells * sizeof(uint32_t);
+
+	result = fdt_appendprop(fdt, nodeoffset, name, buf, buf_size);
+
+	free(buf);
+
+	return result;
+}
+
+static void
+dump_props(void *fdt, int node, int depth)
+{
+	const char *n;
+	int i;
+	uint32_t tag;
+	int nextoffset;
+	const struct fdt_property *prop;
+	int offset = _fdt_check_node_offset(fdt, node);;
+
+	if (offset < 0) {
+		return;
+	}
+
+	do {
+		tag = fdt_next_tag(fdt, offset, &nextoffset);
+		if (tag == FDT_END) {
+			return;
+		}
+
+		if (tag == FDT_PROP) {
+			prop = _fdt_offset_ptr(fdt, offset);
+			n = fdt_string(fdt, fdt32_to_cpu(prop->nameoff));
+
+			for  (i = 0; i < depth; i++) {
+				printf(" ");
+			}
+			printf("%s: 0x%x@%s\n", n,
+			       fdt32_to_cpu(prop->len),
+			       prop->data);
+		}
+
+		offset = nextoffset;
+	} while ((tag != FDT_BEGIN_NODE) && (tag != FDT_END_NODE));
+}
+
+static void
+dump_nodes(void *fdt)
+{
+	int i;
+	int numrsv;
+	int offset;
+	int depth;
+	const char *n;
+
+	if (fdt_check_header(fdt) != 0) {
+		printf("Bad FDT\n");
+		return;
+	}
+
+	numrsv = fdt_num_mem_rsv(fdt);
+	printf("FDT version: %d\n", fdt_version(fdt));
+
+	for (i = 0; i < numrsv; i++) {
+		uint64_t addr, size;
+		if (fdt_get_mem_rsv(fdt, i, &addr, &size) != 0) {
+			break;
+		}
+
+		printf("/memreserve/ 0x%"PRIu64" 0x%"PRIu64";\n",
+		       addr, size);
+	}
+
+	offset = 0;
+	depth = 0;
+	do {
+		offset = fdt_next_node(fdt, offset, &depth);
+		if (offset < 0) {
+			break;
+		}
+
+		n = fdt_get_name(fdt, offset, NULL);
+		for  (i = 0; i < depth * 4; i++) {
+			printf(" ");
+		}
+
+		if (n != NULL) {
+			printf("<%s>\n", n);
+		}
+
+		dump_props(fdt, offset, depth * 4 + 2);
+	} while(1);
+
+	printf("Done dumping FDT\n");
+}
+
+
+#define ALIGN(x, a)     (((x) + ((a) - 1)) & ~((a) - 1))
+#define PALIGN(p, a)    ((void *)(ALIGN((unsigned long)(p), (a))))
+#define GET_CELL(p)     (p += 4, *((const uint32_t *)(p-4)))
+
+static uint64_t IsPrintableString (const void* data, uint64_t len)
+{
+  const char *s = data;
+  const char *ss;
+
+  // Zero length is not
+  if (len == 0) {
+    return 0;
+  }
+
+  // Must terminate with zero
+  if (s[len - 1] != '\0') {
+    return 0;
+  }
+
+  ss = s;
+  while (*s/* && isprint(*s)*/) {
+    s++;
+  }
+
+  // Not zero, or not done yet
+  if (*s != '\0' || (s + 1 - ss) < len) {
+    return 0;
+  }
+
+  return 1;
+}
+
+static void PrintData (const char* data, uint64_t len)
+{
+  uint64_t i;
+  const char *p = data;
+
+  // No data, don't print
+  if (len == 0)
+    return;
+
+  if (IsPrintableString (data, len)) {
+    printf(" = \"%s\"", (const char *)data);
+  } else if ((len % 4) == 0) {
+    printf(" = <");
+    for (i = 0; i < len; i += 4) {
+      printf("0x%08x%s", fdt32_to_cpu(GET_CELL(p)),i < (len - 4) ? " " : "");
+    }
+    printf(">");
+  } else {
+    printf(" = [");
+    for (i = 0; i < len; i++)
+      printf("%02x%s", *p++, i < len - 1 ? " " : "");
+    printf("]");
+  }
+}
+
+void DumpFdt (void* FdtBlob)
+{
+  struct fdt_header *bph;
+  uint32_t off_dt;
+  uint32_t off_str;
+  const char* p_struct;
+  const char* p_strings;
+  const char* p;
+  const char* s;
+  const char* t;
+  uint32_t tag;
+  uint64_t sz;
+  uint64_t depth;
+  uint64_t shift;
+  uint32_t version;
+
+  depth = 0;
+  shift = 4;
+
+  bph = FdtBlob;
+  off_dt = fdt32_to_cpu(bph->off_dt_struct);
+  off_str = fdt32_to_cpu(bph->off_dt_strings);
+  p_struct = (const char*)FdtBlob + off_dt;
+  p_strings = (const char*)FdtBlob + off_str;
+  version = fdt32_to_cpu(bph->version);
+
+  p = p_struct;
+  while ((tag = fdt32_to_cpu(GET_CELL(p))) != FDT_END) {
+
+    if (tag == FDT_BEGIN_NODE) {
+      s = p;
+      p = PALIGN(p + strlen(s) + 1, 4);
+
+      if (*s == '\0')
+              s = "/";
+
+      printf("%*s%s {\n", depth * shift, " ", s);
+
+      depth++;
+      continue;
+    }
+
+    if (tag == FDT_END_NODE) {
+      depth--;
+
+      printf("%*s};\n", depth * shift, " ");
+      continue;
+    }
+
+    if (tag == FDT_NOP) {
+      printf("%*s// [NOP]\n", depth * shift, " ");
+      continue;
+    }
+
+    if (tag != FDT_PROP) {
+      printf("%*s ** Unknown tag 0x%08x\n", depth * shift, " ", tag);
+      break;
+    }
+    sz = fdt32_to_cpu(GET_CELL(p));
+    s = p_strings + fdt32_to_cpu(GET_CELL(p));
+    if (version < 16 && sz >= 8)
+            p = PALIGN(p, 8);
+    t = p;
+
+    p = PALIGN(p + sz, 4);
+
+    printf("%*s%s", depth * shift, " ", s);
+    PrintData(t, sz);
+    printf(";\n");
+  }
+}
+
 /**
  * setup_2nd_dtb - Setup the 2nd stage kernel's dtb.
  */
@@ -393,10 +634,12 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 {
 	uint32_t address_cells, size_cells;
 	int range_len;
-	int nodeoffset;
+ 	int nodeoffset;
 	char *new_buf = NULL;
 	int new_size;
 	int result;
+	int acpi_region_cnt = 0;
+	int i = 0;
 
 	result = fdt_check_header(dtb->buf);
 
@@ -425,19 +668,21 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 			goto on_error;
 		}
 
-		if (!cells_size_fitted(address_cells, size_cells,
-					&crash_reserved_mem)) {
-			fprintf(stderr,
-				"kexec: usable memory range doesn't fit cells-size.\n");
-			result = -EINVAL;
-			goto on_error;
+		for (acpi_region_cnt = acpi_reclaim_memory_rgns.size, i = 0; acpi_region_cnt >= 0; acpi_region_cnt--, i++) {
+			if (!cells_size_fitted(address_cells, size_cells,
+						&crashkernel_usablemem_ranges[i])) {
+				fprintf(stderr,
+						"kexec: usable memory range doesn't fit cells-size.\n");
+				result = -EINVAL;
+				goto on_error;
+			}
 		}
 
 		/* duplicate dt blob */
 		range_len = sizeof(uint32_t) * (address_cells + size_cells);
 		new_size = fdt_totalsize(dtb->buf)
 			+ fdt_prop_len(PROP_ELFCOREHDR, range_len)
-			+ fdt_prop_len(PROP_USABLE_MEM_RANGE, range_len);
+			+ fdt_prop_len(PROP_USABLE_MEM_RANGE, range_len) + 16 * acpi_reclaim_memory_rgns.size;
 
 		new_buf = xmalloc(new_size);
 		result = fdt_open_into(dtb->buf, new_buf, new_size);
@@ -463,18 +708,34 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 		/* add linux,usable-memory-range */
 		nodeoffset = fdt_path_offset(new_buf, "/chosen");
 		result = fdt_setprop_range(new_buf, nodeoffset,
-				PROP_USABLE_MEM_RANGE, &crash_reserved_mem,
+				PROP_USABLE_MEM_RANGE,
+				&crashkernel_usablemem_ranges[0],
 				address_cells, size_cells);
 		if (result) {
-			dbgprintf("%s: fdt_setprop failed: %s\n", __func__,
-				fdt_strerror(result));
+			dbgprintf("%s: fdt_setprop_range failed: %s\n", __func__,
+					fdt_strerror(result));
 			result = -EINVAL;
 			goto on_error;
 		}
 
+		for (acpi_region_cnt = acpi_reclaim_memory_rgns.size,
+		     i = 1; acpi_region_cnt > 0; acpi_region_cnt--,
+		     i++) {
+			result = fdt_appendprop_range(new_buf, nodeoffset,
+					PROP_USABLE_MEM_RANGE,
+					&crashkernel_usablemem_ranges[i],
+					address_cells, size_cells);
+			if (result) {
+				dbgprintf("%s: fdt_appendprop_range failed: %s\n", __func__,
+						fdt_strerror(result));
+				result = -EINVAL;
+				goto on_error;
+			}
+		}
 		fdt_pack(new_buf);
 		dtb->buf = new_buf;
-		dtb->size = fdt_totalsize(new_buf);
+		dtb->size = new_size;
+		DumpFdt(dtb->buf);
 	}
 
 	dump_reservemap(dtb);
@@ -496,7 +757,6 @@ unsigned long arm64_locate_kernel_segment(struct kexec_info *info)
 
 	if (info->kexec_flags & KEXEC_ON_CRASH) {
 		unsigned long hole_end;
-
 		hole = (crash_reserved_mem.start < mem_min ?
 				mem_min : crash_reserved_mem.start);
 		hole = _ALIGN_UP(hole, MiB(2));
@@ -592,8 +852,8 @@ int arm64_load_other_segments(struct kexec_info *info,
 				return EFAILED;
 			}
 
-			dbgprintf("initrd: base %lx, size %lxh (%ld)\n",
-				initrd_base, initrd_size, initrd_size);
+			dbgprintf("initrd: base %lx, size %lxh (%ld), end %lx\n",
+				initrd_base, initrd_size, initrd_size, initrd_end);
 
 			result = dtb_set_initrd((char **)&dtb.buf,
 				&dtb.size, initrd_base,
@@ -614,10 +874,14 @@ int arm64_load_other_segments(struct kexec_info *info,
 	dtb_base = add_buffer_phys_virt(info, dtb.buf, dtb.size, dtb.size,
 		0, hole_min, hole_max, 1, 0);
 
+	printf("\n=======================================================\nDumping DTB for the 2nd time \n");
+
 	/* dtb_base is valid if we got here. */
 
 	dbgprintf("dtb:    base %lx, size %lxh (%ld)\n", dtb_base, dtb.size,
 		dtb.size);
+
+	DumpFdt(dtb.buf);
 
 	elf_rel_build_load(info, &info->rhdr, purgatory, purgatory_size,
 		hole_min, hole_max, 1, 0);

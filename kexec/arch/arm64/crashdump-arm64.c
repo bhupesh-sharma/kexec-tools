@@ -32,12 +32,21 @@ static struct memory_ranges system_memory_rgns = {
 };
 
 /* memory range reserved for crashkernel */
+struct memory_range acpi_reclaim_memory_ranges[CRASH_MAX_MEMORY_RANGES];
+struct memory_ranges acpi_reclaim_memory_rgns = {
+	.size = 0,
+	.max_size = CRASH_MAX_MEMORY_RANGES,
+	.ranges = acpi_reclaim_memory_ranges,
+};
+
 struct memory_range crash_reserved_mem;
 struct memory_ranges usablemem_rgns = {
 	.size = 0,
 	.max_size = 1,
 	.ranges = &crash_reserved_mem,
 };
+
+struct memory_range crashkernel_usablemem_ranges[CRASH_MAX_MEMORY_RANGES];
 
 struct memory_range elfcorehdr_mem;
 
@@ -95,6 +104,9 @@ static int iomem_range_callback(void *UNUSED(data), int UNUSED(nr),
 	else if (strncmp(str, SYSTEM_RAM, strlen(SYSTEM_RAM)) == 0)
 		return mem_regions_add(&system_memory_rgns,
 				       base, length, RANGE_RAM);
+	else if (strncmp(str, ACPI_RECLAIM_REGION, strlen(SYSTEM_RAM)) == 0)
+		return mem_regions_add(&acpi_reclaim_memory_rgns,
+				       base, length, RANGE_RAM);
 	else if (strncmp(str, KERNEL_CODE, strlen(KERNEL_CODE)) == 0)
 		elf_info.kern_paddr_start = base;
 	else if (strncmp(str, KERNEL_DATA, strlen(KERNEL_DATA)) == 0)
@@ -122,6 +134,9 @@ int is_crashkernel_mem_reserved(void)
  */
 static int crash_get_memory_ranges(void)
 {
+	int i = 1;
+	int acpi_region_cnt = 0;
+
 	/*
 	 * First read all memory regions that can be considered as
 	 * system memory including the crash area.
@@ -149,6 +164,31 @@ static int crash_get_memory_ranges(void)
 	dbgprint_mem_range("Coredump memory ranges",
 			   system_memory_rgns.ranges, system_memory_rgns.size);
 
+	/*
+	 * Make sure that the acpi reclaim regions are sorted.
+	 */
+	mem_regions_sort(&acpi_reclaim_memory_rgns);
+
+	dbgprint_mem_range("ACPI reclaim memory ranges",
+			   acpi_reclaim_memory_rgns.ranges,
+			   acpi_reclaim_memory_rgns.size);
+
+	/*
+	 * Add the crashkernel range and ACPI reclaim region ranges to
+	 * the crashkernel_usablemem_ranges
+	 */
+	crashkernel_usablemem_ranges[0] = crash_reserved_mem;
+
+	acpi_region_cnt = acpi_reclaim_memory_rgns.size;
+	do {
+		crashkernel_usablemem_ranges[i] = acpi_reclaim_memory_ranges[i - 1];
+		acpi_region_cnt--;
+		i++;
+	} while (acpi_region_cnt > 0);
+
+	dbgprint_mem_range("crashkernel memory ranges",
+			   crashkernel_usablemem_ranges,
+			   4);
 	/*
 	 * For additional kernel code/data segment.
 	 * kern_paddr_start/kern_size are determined in iomem_range_callback
@@ -198,10 +238,16 @@ int load_crashdump_segments(struct kexec_info *info)
 	if (err)
 		return EFAILED;
 
+	err = crash_create_elf64_headers(info, &elf_info,
+			acpi_reclaim_memory_rgns.ranges, acpi_reclaim_memory_rgns.size,
+			&buf, &bufsz, ELF_CORE_HEADER_ALIGN);
+
+	if (err)
+		return EFAILED;
+
 	elfcorehdr = add_buffer_phys_virt(info, buf, bufsz, bufsz, 0,
 		crash_reserved_mem.start, crash_reserved_mem.end,
 		-1, 0);
-
 	elfcorehdr_mem.start = elfcorehdr;
 	elfcorehdr_mem.end = elfcorehdr + bufsz - 1;
 
