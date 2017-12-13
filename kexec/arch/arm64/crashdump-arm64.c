@@ -246,10 +246,15 @@ int load_crashdump_segments(struct kexec_info *info)
 	if (err)
 		return EFAILED;
 
+#if 1
 	elfcorehdr = add_buffer_phys_virt(info, buf, bufsz, bufsz, 0,
 		crash_reserved_mem.start, crash_reserved_mem.end,
 		-1, 0);
-
+#else
+	elfcorehdr = add_buffer_phys_virt(info, buf, bufsz, bufsz, 0,
+		crashkernel_usablemem_ranges[0].start, crashkernel_usablemem_ranges[acpi_reclaim_memory_rgns.size].end,
+		-1, 0);
+#endif
 	elfcorehdr_mem.start = elfcorehdr;
 	elfcorehdr_mem.end = elfcorehdr + bufsz - 1;
 
@@ -291,8 +296,13 @@ int get_crash_kernel_load_range(uint64_t *start, uint64_t *end)
 	if (!crash_reserved_mem.end)
 		return -1;
 
+#if 0
 	*start = crash_reserved_mem.start;
 	*end = crash_reserved_mem.end;
+#else
+	*start = crashkernel_usablemem_ranges[0].start;
+	*end = crashkernel_usablemem_ranges[acpi_reclaim_memory_rgns.size].end;
+#endif
 
 	return 0;
 }

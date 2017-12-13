@@ -101,8 +101,11 @@ static int _fdt_splice(void *fdt, void *splicepoint, int oldlen, int newlen)
 
 	if (((p + oldlen) < p) || ((p + oldlen) > end))
 		return -FDT_ERR_BADOFFSET;
-	if ((end - oldlen + newlen) > ((char *)fdt + fdt_totalsize(fdt)))
+	if ((end - oldlen + newlen) > ((char *)fdt + fdt_totalsize(fdt))) {
+		printf("BHUPESH inside _fdt_splice, (end - oldlen + newlen)=%x, ((char *)fdt + fdt_totalsize(fdt))=%x\n",
+				(end - oldlen + newlen), ((char *)fdt + fdt_totalsize(fdt)));
 		return -FDT_ERR_NOSPACE;
+	}
 	memmove(p + newlen, p + oldlen, end - p - oldlen);
 	return 0;
 }
@@ -286,6 +289,37 @@ int fdt_setprop(void *fdt, int nodeoffset, const char *name,
 		return err;
 
 	memcpy(prop->data, val, len);
+	return 0;
+}
+
+int fdt_appendprop(void *fdt, int nodeoffset, const char *name,
+		   const void *val, int len)
+{
+	struct fdt_property *prop;
+	int err, oldlen, newlen;
+
+	FDT_RW_CHECK_HEADER(fdt);
+
+	prop = fdt_get_property_w(fdt, nodeoffset, name, &oldlen);
+	printf("BHUPESH, marker x 1, prop=%d, oldlen=%d len =%d\n", prop, oldlen, len);
+	if (prop) {
+		newlen = len + oldlen;
+		printf("BHUPESH, marker x 2, newlen=%d\n", newlen);
+		err = _fdt_splice_struct(fdt, prop->data,
+					 FDT_TAGALIGN(oldlen),
+					 FDT_TAGALIGN(newlen));
+		printf("BHUPESH, marker x 3, err=%d\n", err);
+		if (err)
+			return err;
+		prop->len = cpu_to_fdt32(newlen);
+		memcpy(prop->data + oldlen, val, len);
+		printf("BHUPESH, marker x 4\n");
+	} else {
+		err = _fdt_add_property(fdt, nodeoffset, name, len, &prop);
+		if (err)
+			return err;
+		memcpy(prop->data, val, len);
+	}
 	return 0;
 }
 
