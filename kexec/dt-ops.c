@@ -8,6 +8,10 @@
 #include "kexec.h"
 #include "dt-ops.h"
 
+#define ALIGN(x, a)	(((x) + ((a) - 1)) & ~((a) - 1))
+#define PALIGN(p, a)	((void *)(ALIGN((unsigned long)(p), (a))))
+#define GET_CELL(p)	(p += 4, *((const uint32_t *)(p-4)))
+
 static const char n_chosen[] = "/chosen";
 
 static const char p_bootargs[] = "bootargs";
@@ -142,4 +146,143 @@ int dtb_delete_property(char *dtb, const char *node, const char *prop)
 			fdt_strerror(nodeoffset));
 
 	return result;
+}
+
+static uint64_t is_printable_string(const void* data, uint64_t len)
+{
+	const char *s = data;
+	const char *ss;
+
+	/* Check for zero length strings */
+	if (len == 0)
+		return 0;
+
+	/* String must be terminated with a '\0' */
+	if (s[len - 1] != '\0')
+		return 0;
+
+	ss = s;
+	while (*s)
+		s++;
+
+	/* Traverse till we hit a '\0' or reach 'len' */
+	if (*s != '\0')
+		return 0;
+
+	if ((s + 1 - ss) < len) {
+		/* Handle special cases such as 'bootargs' properties
+		 * in dtb which are actually strings, but they may have
+		 * a format where (s + 1 - ss) < len remains true.
+		 *
+		 * We can catch such cases by checking if (s + 1 - ss)
+		 * is greater than 1
+		 */
+		if ((s + 1 - ss) > 1)
+			return 1;
+
+		return 0;
+	}
+
+	return 1;
+}
+
+static void print_data(const char* data, uint64_t len)
+{
+	uint64_t i;
+	const char *p = data;
+
+	/* Check for non-zero length */
+	if (len == 0)
+		return;
+
+	if (is_printable_string(data, len)) {
+		dbgprintf(" = \"%s\"", (const char *)data);
+	} else if ((len % 4) == 0) {
+		dbgprintf(" = <");
+		for (i = 0; i < len; i += 4) {
+			dbgprintf("0x%08x%s",
+					fdt32_to_cpu(GET_CELL(p)),
+					i < (len - 4) ? " " : "");
+		}
+		dbgprintf(">");
+	} else {
+		dbgprintf(" = [");
+		for (i = 0; i < len; i++)
+			dbgprintf("%02x%s", *p++,
+					i < len - 1 ? " " : "");
+		dbgprintf("]");
+	}
+}
+
+void dump_fdt(void* fdt)
+{
+	struct fdt_header *bph;
+	const char* p_struct;
+	const char* p_strings;
+	const char* p;
+	const char* s;
+	const char* t;
+	uint32_t off_dt;
+	uint32_t off_str;
+	uint32_t tag;
+	uint64_t sz;
+	uint64_t depth;
+	uint64_t shift;
+	uint32_t version;
+
+	depth = 0;
+	shift = 4;
+
+	bph = fdt;
+	off_dt = fdt32_to_cpu(bph->off_dt_struct);
+	off_str = fdt32_to_cpu(bph->off_dt_strings);
+	p_struct = (const char*)fdt + off_dt;
+	p_strings = (const char*)fdt + off_str;
+	version = fdt32_to_cpu(bph->version);
+
+	p = p_struct;
+	while ((tag = fdt32_to_cpu(GET_CELL(p))) != FDT_END) {
+
+		if (tag == FDT_BEGIN_NODE) {
+			s = p;
+			p = PALIGN(p + strlen(s) + 1, 4);
+
+			if (*s == '\0')
+				s = "/";
+
+			dbgprintf("%*s%s {\n", (int)(depth * shift), " ", s);
+
+			depth++;
+			continue;
+		}
+
+		if (tag == FDT_END_NODE) {
+			depth--;
+
+			dbgprintf("%*s};\n", (int)(depth * shift), " ");
+			continue;
+		}
+
+		if (tag == FDT_NOP) {
+			dbgprintf("%*s// [NOP]\n", (int)(depth * shift), " ");
+			continue;
+		}
+
+		if (tag != FDT_PROP) {
+			dbgprintf("%*s ** Unknown tag 0x%08x\n",
+					(int)(depth * shift), " ", tag);
+			break;
+		}
+		sz = fdt32_to_cpu(GET_CELL(p));
+		s = p_strings + fdt32_to_cpu(GET_CELL(p));
+		if (version < 16 && sz >= 8)
+			p = PALIGN(p, 8);
+		t = p;
+
+		p = PALIGN(p + sz, 4);
+
+		dbgprintf("%*s%s", (int)(depth * shift), " ", s);
+		print_data(t, sz);
+		dbgprintf(";\n");
+	}
 }
