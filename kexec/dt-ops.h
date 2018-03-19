@@ -9,5 +9,6 @@ int dtb_set_property(char **dtb, off_t *dtb_size, const char *node,
 	const char *prop, const void *value, int value_len);
 
 int dtb_delete_property(char *dtb, const char *node, const char *prop);
+void dump_fdt(void *fdt) ;
 
 #endif
