@@ -540,6 +540,8 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 	dtb->buf = new_buf;
 	dtb->size = fdt_totalsize(new_buf);
 
+	dbgprintf("%s: found %s\n", __func__, dtb->path);
+	dump_fdt(dtb->buf);
 	dump_reservemap(dtb);
 
 	return result;
