@@ -392,6 +392,7 @@ static int fdt_setprop_range(void *fdt, int nodeoffset,
 static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 {
 	uint32_t address_cells, size_cells;
+	uint64_t kaslr_seed = 0x444;
 	int range_len;
 	int nodeoffset;
 	char *new_buf = NULL;
@@ -465,6 +466,19 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 		result = fdt_setprop_range(new_buf, nodeoffset,
 				PROP_USABLE_MEM_RANGE, &crash_reserved_mem,
 				address_cells, size_cells);
+		if (result) {
+			dbgprintf("%s: fdt_setprop failed: %s\n", __func__,
+				fdt_strerror(result));
+			result = -EINVAL;
+			goto on_error;
+		}
+
+		/* add security vulnerability by provoding a static
+		 *'chosen/kaslr-seed'
+		 */
+		result = fdt_setprop(new_buf, nodeoffset,
+				"kaslr-seed", &kaslr_seed,
+				 sizeof(uint64_t));
 		if (result) {
 			dbgprintf("%s: fdt_setprop failed: %s\n", __func__,
 				fdt_strerror(result));
