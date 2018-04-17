@@ -1,71 +1,71 @@
 # Hey Emacs this is a -*- makefile-*-
 
-PACKAGE_NAME	= @PACKAGE_NAME@
-PACKAGE_VERSION	= @PACKAGE_VERSION@
+PACKAGE_NAME	= kexec-tools
+PACKAGE_VERSION	= 2.0.13.git
 
-prefix		= @prefix@
-exec_prefix	= @exec_prefix@
+prefix		= /usr/local
+exec_prefix	= ${prefix}
 
-bindir		= @bindir@
-sbindir		= @sbindir@
-libexecdir	= @libexecdir@
-datadir		= @datadir@
-datarootdir	= @datarootdir@
-sysconfdir	= @sysconfdir@
-sharedstatedir	= @sharedstatedir@
-localstatedir	= @localstatedir@
-libdir		= @libdir@
-infodir		= @infodir@
-mandir		= @mandir@
-includedir	= @includedir@
+bindir		= ${exec_prefix}/bin
+sbindir		= ${exec_prefix}/sbin
+libexecdir	= ${exec_prefix}/libexec
+datadir		= ${datarootdir}
+datarootdir	= ${prefix}/share
+sysconfdir	= ${prefix}/etc
+sharedstatedir	= ${prefix}/com
+localstatedir	= ${prefix}/var
+libdir		= ${exec_prefix}/lib
+infodir		= ${datarootdir}/info
+mandir		= ${datarootdir}/man
+includedir	= ${prefix}/include
 
 
 # The target architecture
-ARCH		= @ARCH@
-SUBARCH		= @SUBARCH@
-OBJDIR		= @OBJDIR@
-target		= @target@
-host		= @host@
+ARCH		= x86_64
+SUBARCH		= 
+OBJDIR		= /home/bhsharma/code/upstream/kexec-tools/objdir
+target		= x86_64-unknown-linux-gnu
+host		= x86_64-unknown-linux-gnu
 
 # Compiler for building kexec
-CC		= @CC@
-CPP		= @CPP@
-LD		= @LD@
-AS		= @AS@
-OBJCOPY		= @OBJCOPY@
-AR		= @AR@
+CC		= gcc
+CPP		= gcc -E
+LD		= ld
+AS		= as
+OBJCOPY		= objcopy
+AR		= ar
 
 # C compiler for binaries to run during the build
-BUILD_CC	= @BUILD_CC@
-BUILD_CFLAGS	= @BUILD_CFLAGS@
-TARGET_CC	= @TARGET_CC@
-TARGET_LD	= @TARGET_LD@
-TARGET_CFLAGS	= @TARGET_CFLAGS@
+BUILD_CC	= gcc
+BUILD_CFLAGS	= -O2 -Wall
+TARGET_CC	= gcc
+TARGET_LD	= ld
+TARGET_CFLAGS	= -O2 -Wall
 
 
 # Base compiler flags. These are extended by the subcomponent-Makefiles
 # where necessary.
-CPPFLAGS	= @CPPFLAGS@ -I$(srcdir)/include -I$(srcdir)/util_lib/include \
+CPPFLAGS	=  -I$(srcdir)/include -I$(srcdir)/util_lib/include \
 			-Iinclude/ $($(ARCH)_CPPFLAGS)
-CFLAGS		= @CFLAGS@ -fno-strict-aliasing -Wall -Wstrict-prototypes
-PURGATORY_EXTRA_CFLAGS = @PURGATORY_EXTRA_CFLAGS@
-ASFLAGS		= @ASFLAGS@ $($(ARCH)_ASFLAGS)
-LDFLAGS		= @LDFLAGS@
-LIBS		= @LIBS@
+CFLAGS		= -g -O2 -fno-strict-aliasing -Wall -Wstrict-prototypes
+PURGATORY_EXTRA_CFLAGS = -fno-zero-initialized-in-bss
+ASFLAGS		=  $($(ARCH)_ASFLAGS)
+LDFLAGS		= 
+LIBS		= 
 
 # Utilities called by the makefiles
-INSTALL		= @INSTALL@
-MKDIR		= @MKDIR@
-RM		= @RM@
-CP		= @CP@
-LN		= @LN@
-TAR		= @TAR@
-RPMBUILD	= @RPMBUILD@
-SED		= @SED@
-FIND		= @FIND@
-XARGS		= @XARGS@
-DIRNAME		= @DIRNAME@
-STRIP		= @STRIP@
+INSTALL		= /usr/bin/install -c
+MKDIR		= mkdir
+RM		= rm
+CP		= cp
+LN		= ln
+TAR		= tar
+RPMBUILD	= no
+SED		= sed
+FIND		= find
+XARGS		= xargs
+DIRNAME		= dirname
+STRIP		= strip
 
 
 pkgdatadir = $(datadir)/$(PACKAGE_NAME)
@@ -77,8 +77,8 @@ pkgincludedir = $(includedir)/$(PACKAGE_NAME)
 # Useful for building binary packages
 DESTDIR =
 
-srcdir		= @srcdir@
-VPATH		= .:$(srcdir)
+srcdir		= .
+VPATH		= .
 
 # install paths
 BUILD_PREFIX:=build
