@@ -172,16 +172,25 @@ SRCS:= $(dist)
 PSRCS:=$(foreach s, $(SRCS), $(PACKAGE_NAME)-$(PACKAGE_VERSION)/$(s))
 PGSRCS:=$(foreach s, $(GENERATED_SRCS), $(PACKAGE_NAME)-$(PACKAGE_VERSION)/$(s))
 
-KDUMP = $(SBINDIR)/kdump
-KDUMP_MANPAGE = $(MANDIR)/man8/kdump.8
-MAN_PAGES:=$(KEXEC_MANPAGE) $(KDUMP_MANPAGE) $(VMCORE_DMESG_MANPAGE)
+MAN_PAGES:=$(KEXEC_MANPAGE) $(VMCORE_DMESG_MANPAGE)
 BINARIES_i386:=$(KEXEC_TEST)
 BINARIES_x86_64:=$(KEXEC_TEST)
-BINARIES:=$(KEXEC) $(KDUMP) $(VMCORE_DMESG) $(BINARIES_$(ARCH))
+BINARIES:=$(KEXEC) $(VMCORE_DMESG) $(BINARIES_$(ARCH))
+
+UNINSTALL_KDUMP = $(sbindir)/kdump
+UNINSTALL_KDUMP_MANPAGE = $(mandir)/man8/kdump.8
+UNINSTALL_KEXEC = $(sbindir)/kexec
+UNINSTALL_KEXEC_MANPAGE = $(mandir)/man8/kexec.8
+UNINSTALL_VMCORE_DMESG = $(sbindir)/vmcore-dmesg
+UNINSTALL_VMCORE_DMESG_MANPAGE = $(mandir)/man8/vmcore-dmesg.8
 
 TARGETS:=$(BINARIES) $(MAN_PAGES)
-
 targets: $(TARGETS)
+
+UNINSTALL_TARGETS:=$(UNINSTALL_KDUMP) $(UNINSTALL_KDUMP_MANPAGE) \
+		   $(UNINSTALL_KEXEC) $(UNINSTALL_KEXEC_MANPAGE) \
+		   $(UNINSTALL_VMCORE_DMESG) $(UNINSTALL_VMCORE_DMESG_MANPAGE)
+uninstall-targets: $(UNINSTALL_TARGETS)
 
 Makefile: Makefile.in config.status
 	./config.status
@@ -215,6 +224,7 @@ echo::
 	@echo ARCH=$(ARCH)
 	@echo BINARIES=$(BINARIES)
 	@echo TARGETS=$(TARGETS)
+	@echo UNINSTALL_TARGETS=$(UNINSTALL_TARGETS)
 	@echo CC=$(CC)
 	@echo AR=$(AR)
 	@echo LD=$(LD)
@@ -320,72 +330,72 @@ install: $(TARGETS)
 		fi; \
 	done
 
-uninstall: $(TARGETS)
-	for file in $(TARGETS) ; do \
-		if test `$(DIRNAME) $$file` =     "$(SBINDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(sbindir)/$$file; \
+uninstall:
+	UINSTALL_LIST='$(UNINSTALL_TARGETS)'; for file in $$UINSTALL_LIST ; do \
+		if test `$(DIRNAME) $$file` =     "$(sbindir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(BINDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(bindir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(bindir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(LIBEXECDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(libexecdir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(libexecdir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(DATADIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(datadir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(datadir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(SYSCONFDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(sysconfdir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(sysconfdir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(SHAREDSTATEDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(sharedstatedir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(sharedstatedir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(LOCALSTATEDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(localstatedir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(localstatedir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(LIBDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(libdir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(libdir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(INFODIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(infodir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(infodir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN1DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man1/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man1" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN2DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man2/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man2" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN3DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man3/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man3" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN4DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man4/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man4" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN5DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man5/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man5" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN6DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man6/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man6" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN7DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man7/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man7" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(MAN8DIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(mandir)/man8/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(mandir)/man8" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(INCLUDEDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(includedir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(includedir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(PKGDATADIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(pkgdatadir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(pkgdatadir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(PKGLIBDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(pkglibdir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(pkglibdir)" ; then \
+			rm -rf $$file ; \
 		fi; \
-		if test `$(DIRNAME) $$file` =     "$(PKGINCLUDEDIR)" ; then \
-			$(RM) -f $(DESTDIR)/$(pkgincludedir)/$$file; \
+		if test `$(DIRNAME) $$file` =     "$(pkgincludedir)" ; then \
+			rm -rf $$file ; \
 		fi; \
 	done
 
-.PHONY: echo install uninstall all targets clean dist-clean distclean \
+.PHONY: echo install uninstall all targets uninstall_targets clean dist-clean distclean \
 	maintainer-clean maintainerclean tarball rpm
