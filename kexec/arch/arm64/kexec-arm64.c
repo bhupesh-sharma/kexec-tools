@@ -14,6 +14,9 @@
 #include <sys/stat.h>
 #include <linux/elf-em.h>
 #include <elf.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+
 
 #include "kexec.h"
 #include "kexec-arm64.h"
@@ -32,6 +35,12 @@
 #define PROP_SIZE_CELLS "#size-cells"
 #define PROP_ELFCOREHDR "linux,elfcorehdr"
 #define PROP_USABLE_MEM_RANGE "linux,usable-memory-range"
+
+#define DEV_MEM "/dev/mem"
+
+#define ALIGN_MASK(x, y) (((x) + (y)) & ~(y))
+#define ALIGN(x, y)    ALIGN_MASK(x, (y) - 1)
+#define BUFSIZE  (256)
 
 /* Global varables the core kexec routines expect. */
 
@@ -720,6 +729,97 @@ static int get_memory_ranges_iomem(struct memory_range *array,
 	return 0;
 }
 
+static uint64_t get_kernel_paddr(void)
+{
+       uint64_t start;
+
+       if (parse_iomem_single("Kernel code\n", &start, NULL) == 0) {
+               dbgprintf("kernel load physical addr start = 0x%" PRIu64 "\n",
+                       start);
+               return start;
+       }
+
+       fprintf(stderr, "Cannot determine kernel physical load addr\n");
+       exit(3);
+}
+
+static uint64_t get_kimage_voffset(void)
+{
+       uint64_t kern_vaddr_start;
+       uint64_t kern_paddr_start;
+
+       kern_paddr_start = get_kernel_paddr();
+       kern_vaddr_start = get_kernel_sym("_text");
+
+       return kern_vaddr_start - kern_paddr_start;
+}
+
+static uint64_t kimg_to_phys(uint64_t vaddr)
+{
+       return vaddr - get_kimage_voffset();
+}
+
+static void *map_addr(int fd, unsigned long size, off_t offset)
+{
+       unsigned long page_size = getpagesize();
+       unsigned long map_offset = offset & (page_size - 1);
+       size_t len = ALIGN(size + map_offset, page_size);
+       void *result;
+
+       result = mmap(0, len, PROT_READ, MAP_SHARED, fd, offset - map_offset);
+       if (result == MAP_FAILED) {
+               fprintf(stderr,
+                       "Cannot mmap " DEV_MEM " offset: %#llx size: %lu: %s\n",
+                       (unsigned long long)offset, size, strerror(errno));
+               exit(5);
+       }
+       return result + map_offset;
+}
+
+static void unmap_addr(void *addr, unsigned long size)
+{
+       unsigned long page_size = getpagesize();
+       unsigned long map_offset = (uintptr_t)addr & (page_size - 1);
+       size_t len = ALIGN(size + map_offset, page_size);
+       int ret;
+
+       addr -= map_offset;
+
+       ret = munmap(addr, len);
+       if (ret < 0) {
+               fprintf(stderr, "munmap failed: %s\n",
+                       strerror(errno));
+               exit(6);
+       }
+}
+
+static void init_phys_offset(void)
+{
+       int fd;
+       uint64_t phys_offset;
+       uint64_t memstart_addr_paddr;
+       void *memstart_addr_vaddr;
+
+       memstart_addr_paddr = kimg_to_phys(get_kernel_sym("memstart_addr"));
+
+       fd = open(DEV_MEM, O_RDONLY);
+       if (fd < 0) {
+               fprintf(stderr, "Cannot open " DEV_MEM ": %s\n",
+                       strerror(errno));
+               exit(3);
+       }
+
+       memstart_addr_vaddr = map_addr(fd,
+                       sizeof(memstart_addr_paddr), memstart_addr_paddr);
+
+       phys_offset = *(uint64_t *)memstart_addr_vaddr;
+       unmap_addr(memstart_addr_vaddr, sizeof(memstart_addr_paddr));
+       close(fd);
+
+       set_phys_offset(phys_offset);
+}
+
+
 /**
  * get_memory_ranges - Try to get the memory ranges some how.
  */
@@ -730,6 +830,8 @@ int get_memory_ranges(struct memory_range **range, int *ranges,
 	static struct memory_range array[KEXEC_SEGMENT_MAX];
 	unsigned int count;
 	int result;
+
+	init_phys_offset();
 
 	result = get_memory_ranges_iomem(array, &count);
 
