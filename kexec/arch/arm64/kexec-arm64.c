@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <linux/elf-em.h>
 #include <elf.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 #include "kexec.h"
 #include "kexec-arm64.h"
@@ -720,6 +722,104 @@ static int get_memory_ranges_iomem(struct memory_range *array,
 	return 0;
 }
 
+#define DEV_MEM "/dev/mem"
+
+#define ALIGN_MASK(x, y)	(((x) + (y)) & ~(y))
+#define ALIGN(x, y)		ALIGN_MASK(x, (y) - 1)
+#define BUFSIZE			(256)
+
+static unsigned long long get_kernel_paddr(void)
+{
+	unsigned long long start;
+
+	if (parse_iomem_single("Kernel code\n", &start, NULL) == 0) {
+		printf("kernel load physical addr start = 0x%" PRIu64 "\n",
+				start);
+		return start;
+	}
+
+	printf("Cannot determine kernel physical load addr\n");
+	exit(3);
+}
+
+static unsigned long long get_kimage_voffset(void)
+{
+	unsigned long long kern_vaddr_start;
+	unsigned long long kern_paddr_start;
+
+	kern_paddr_start = get_kernel_paddr();
+	kern_vaddr_start = get_kernel_sym("_text");
+
+	return kern_vaddr_start - kern_paddr_start;
+}
+
+static unsigned long long kimg_to_phys(unsigned long long vaddr)
+{
+	return vaddr - get_kimage_voffset();
+}
+
+static void *map_addr(int fd, unsigned long size, off_t offset)
+{
+	unsigned long page_size = getpagesize();
+	unsigned long map_offset = offset & (page_size - 1);
+	size_t len = ALIGN(size + map_offset, page_size);
+	void *result;
+
+	result = mmap(0, len, PROT_READ, MAP_SHARED, fd, offset - map_offset);
+	if (result == MAP_FAILED) {
+		printf("Cannot mmap " DEV_MEM " offset: %#llx size: %lu:\n",
+				(unsigned long long)offset, size);
+		exit(5);
+	}
+	return result + map_offset;
+}
+
+static void unmap_addr(void *addr, unsigned long size)
+{
+	unsigned long page_size = getpagesize();
+	unsigned long map_offset = (uintptr_t)addr & (page_size - 1);
+	size_t len = ALIGN(size + map_offset, page_size);
+	int ret;
+
+	addr -= map_offset;
+
+	ret = munmap(addr, len);
+	if (ret < 0) {
+		printf("munmap failed\n");
+		exit(6);
+	}
+}
+
+static void init_linear_reg_start_addr(void)
+{
+	int fd;
+	unsigned long long linear_range_start_paddr;
+	unsigned long long linear_reg_start_addr;
+	void *linear_range_start_vaddr;
+
+	linear_range_start_paddr = kimg_to_phys(get_kernel_sym
+			("linear_reg_start_addr"));
+
+	fd = open(DEV_MEM, O_RDONLY);
+	if (fd < 0) {
+		printf("Cannot open DEV_MEM \n");
+		exit(3);
+	}
+
+	linear_range_start_vaddr = map_addr(fd,
+			sizeof(linear_range_start_paddr),
+			linear_range_start_paddr);
+
+	linear_reg_start_addr = *(unsigned long long *)linear_range_start_vaddr;
+	unmap_addr(linear_range_start_vaddr,
+		   sizeof(linear_range_start_paddr));
+	close(fd);
+
+	printf("linear_reg_start_addr: %llx\n",
+			linear_reg_start_addr);
+}
+
+
 /**
  * get_memory_ranges - Try to get the memory ranges some how.
  */
@@ -731,6 +831,7 @@ int get_memory_ranges(struct memory_range **range, int *ranges,
 	unsigned int count;
 	int result;
 
+	init_linear_reg_start_addr();
 	result = get_memory_ranges_iomem(array, &count);
 
 	*range = result ? NULL : array;
