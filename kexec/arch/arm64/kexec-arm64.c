@@ -739,6 +739,12 @@ void add_segment(struct kexec_info *info, const void *buf, size_t bufsz,
 	add_segment_phys_virt(info, buf, bufsz, base, memsz, 1);
 }
 
+#define __round_mask(x, y) ((__typeof__(x))((y)-1))
+#define round_up(x, y) ((((x)-1) | __round_mask(x, y))+1)
+#define round_down(x, y) ((x) & ~__round_mask(x, y))
+
+#define ARM64_MEMSTART_ALIGN (0x40000000)
+
 /**
  * get_memory_ranges_iomem_cb - Helper for get_memory_ranges_iomem.
  */
@@ -759,6 +765,11 @@ static int get_memory_ranges_iomem_cb(void *data, int nr, char *str,
 		r->type = RANGE_RESERVED;
 	else
 		return 1;
+
+	/*
+	 * Select a suitable value for the base of physical memory.
+	 */
+	base = round_down(base, ARM64_MEMSTART_ALIGN);
 
 	r->start = base;
 	r->end = base + length - 1;
