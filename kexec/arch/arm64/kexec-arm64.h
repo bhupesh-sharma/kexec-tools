@@ -47,6 +47,7 @@ struct arm64_mem {
 	uint64_t text_offset;
 	uint64_t image_size;
 	uint64_t vp_offset;
+	bool phys_offset_available;
 };
 
 #define arm64_mem_ngv UINT64_MAX
@@ -60,11 +61,23 @@ static inline void reset_vp_offset(void)
 	arm64_mem.vp_offset = arm64_mem_ngv;
 }
 
+static inline void reset_phys_offset(void)
+{
+	arm64_mem.phys_offset_available = false;
+}
+
 static inline void set_phys_offset(uint64_t v)
 {
-	if (arm64_mem.phys_offset == arm64_mem_ngv
-		|| v < arm64_mem.phys_offset)
-		arm64_mem.phys_offset = v;
+	/* Check if we have already set the PHYS_OFFSET using one of the
+	 * methods available with newer kernels (e.g. using
+	 * /proc/kcore). If yes, don't overwrite the same.
+	 */
+	if (!arm64_mem.phys_offset_available &&
+	    (arm64_mem.phys_offset == arm64_mem_ngv ||
+	     v < arm64_mem.phys_offset)) {
+			arm64_mem.phys_offset = v;
+			arm64_mem.phys_offset_available = true;
+	}
 }
 
 int arm64_process_image_header(const struct arm64_image_header *h);

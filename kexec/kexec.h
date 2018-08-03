@@ -326,5 +326,7 @@ void xen_kexec_exec(void);
 int xen_kexec_status(uint64_t kexec_flags);
 
 extern unsigned long long get_kernel_sym(const char *text);
+void read_nhdr(const struct mem_ehdr *ehdr,
+	ElfNN_Nhdr *hdr, const unsigned char *note);
 
 #endif /* KEXEC_H */

@@ -147,6 +147,7 @@ int elf_arm64_load(int argc, char **argv, const char *kernel_buf,
 
 exit:
 	reset_vp_offset();
+	reset_phys_offset();
 	free_elf_info(&ehdr);
 	if (result)
 		fprintf(stderr, "kexec: Bad elf image file, load failed.\n");

@@ -659,7 +659,7 @@ static int build_mem_shdrs(const char *buf, off_t len, struct mem_ehdr *ehdr,
 	return 0;
 }
 
-static void read_nhdr(const struct mem_ehdr *ehdr,
+void read_nhdr(const struct mem_ehdr *ehdr,
 	ElfNN_Nhdr *hdr, const unsigned char *note)
 {
 	memcpy(hdr, note, sizeof(*hdr));

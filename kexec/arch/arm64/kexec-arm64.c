@@ -739,6 +739,159 @@ void add_segment(struct kexec_info *info, const void *buf, size_t bufsz,
 	add_segment_phys_virt(info, buf, bufsz, base, memsz, 1);
 }
 
+/* vmcoreinfo stuff */
+#define VMCOREINFO_NOTE_NAME	   "VMCOREINFO"
+
+/*
+ * Reads a string value from VMCOREINFO.
+ *
+ * Returns a string (that has to be freed by the caller) that contains the
+ * value for key or NULL if the key has not been found.
+ */
+static char *
+vmcoreinfo_read_string(const char *key, char *vmcoreinfo,
+		       unsigned int size_vmcoreinfo)
+{
+	int i, j, end;
+	size_t value_length;
+	size_t key_length = strlen(key);
+	char *value = NULL;
+
+	if (!vmcoreinfo)
+		return NULL;
+
+	/* the '+ 1' is the equal sign */
+	for (i = 0; i < (size_vmcoreinfo - key_length + 1); i++) {
+		/*
+		 * We must also check if we're at the beginning of VMCOREINFO
+		 * or the separating newline is there, and of course if we 
+		 * have a equal sign after the key.
+		 */
+		if ((strncmp(vmcoreinfo+i, key, key_length) == 0) &&
+		    (i == 0 || vmcoreinfo[i-1] == '\n') &&
+		    (vmcoreinfo[i+key_length] == '=')) {
+
+			end = -1;
+
+			/* Found -- search for the next newline. */
+			for (j = i + key_length + 1; 
+			     j < size_vmcoreinfo; j++) {
+				if (vmcoreinfo[j] == '\n') {
+					end = j;
+					break;
+				}
+			}
+
+			/* 
+			 * If we didn't find an end, we assume it's the end 
+			 * of VMCOREINFO data. 
+			 */
+			if (end == -1) {
+				/* Point after the end. */
+				end = size_vmcoreinfo + 1;
+			}
+
+			value_length = end - (1+ i + key_length);
+			value = calloc(value_length+1, sizeof(char));
+			if (value)
+				strncpy(value, vmcoreinfo + i + key_length + 1, 
+					value_length);
+			break;
+		}
+	}
+
+	return value;
+}
+
+/**
+ * get_phys_offset_from_kcore
+ */
+
+static int get_phys_offset_from_kcore(uint64_t *phys_offset)
+{
+	const char kcore[] = "/proc/kcore";
+	char *vmcoreinfo;
+	unsigned int size_vmcoreinfo;
+	char *buf;
+	char *string;
+	off_t size;
+	struct mem_ehdr ehdr;
+	const unsigned char *note_start, *note_end, *note;
+	struct mem_phdr *phdr, *end_phdr;
+	size_t note_size;
+	int result;
+	uint32_t elf_flags = 0;
+
+	/* First find the note segment or section */
+	note_start = note_end = NULL;
+
+	buf = slurp_file_len(kcore, KCORE_ELF_HEADERS_SIZE, &size);
+	if (!buf) {
+		fprintf(stderr, "Cannot read %s: %s\n", kcore, strerror(errno));
+		return -1;
+	}
+	
+	/* Don't perform checks to make sure stated phdrs and shdrs are
+	 * actually present in the core file. It is not practical
+	 * to read the GB size file into a user space buffer, Given the
+	 * fact that we don't use any info from that.
+	 */
+	elf_flags |= ELF_SKIP_FILESZ_CHECK;
+	result = build_elf_core_info(buf, size, &ehdr, elf_flags);
+	if (result < 0) {
+		/* Perhaps KCORE_ELF_HEADERS_SIZE is too small? */
+		fprintf(stderr, "ELF core (kcore) parse failed\n");
+		return -1;
+	}
+
+	end_phdr = &ehdr.e_phdr[ehdr.e_phnum];
+
+	/* Search for PHYS_OFFSET from PT_NOTE */
+	for(phdr = ehdr.e_phdr; phdr != end_phdr; phdr++) {
+		if (phdr->p_type == PT_NOTE && phdr->p_offset) {
+			note_start = (unsigned char *)phdr->p_data;
+			note_end = note_start + phdr->p_filesz;
+		}
+	}
+
+	/* Walk through and count the notes */
+	for(note = note_start; note < note_end; note+= note_size) {
+		const unsigned char *desc;
+		ElfNN_Nhdr hdr;
+		read_nhdr(ehdr, &hdr, note);
+		note_size  = sizeof(hdr);
+		note_size += _ALIGN(hdr.n_namesz, 4);
+		desc       = note + note_size;
+		note_size += _ALIGN(hdr.n_descsz, 4);
+
+		if (hdr.n_type == VMCOREINFO_NOTE_NAME) {
+			vmcoreinfo = desc;
+			size_vmcoreinfo = hdr.n_descsz;
+			if ((string = vmcoreinfo_read_string("NUMBER(PHYS_OFFSET)",
+							     vmcoreinfo, size_vmcoreinfo))) {
+				*phys_offset = htol(string, QUIET, NULL);
+				free(string);
+				return 1;
+			}
+		}
+	}
+}
+
+
+int set_phys_offset_from_kcore(void)
+{
+	uint64_t phys_offset;
+	int ret;
+
+	ret = get_phys_offset_from_kcore(&phys_offset);
+	if (ret < 0)
+		return ret;
+
+	set_phys_offset(phys_offset);
+
+	return 0;
+}
+
 /**
  * get_memory_ranges_iomem_cb - Helper for get_memory_ranges_iomem.
  */
