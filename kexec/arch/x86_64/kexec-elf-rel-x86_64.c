@@ -78,7 +78,8 @@ void machine_apply_elf_rel(struct mem_ehdr *UNUSED(ehdr),
 		if ((int64_t)value != *(int32_t *)location)
 			goto overflow;
 		break;
-	case R_X86_64_PC32: 
+	case R_X86_64_PC32:
+	case R_X86_64_PLT32:
 		*(uint32_t *)location = value - address;
 		break;
 	default:
