@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <linux/elf-em.h>
 #include <elf.h>
+#include <elf_info.h>
 
 #include <unistd.h>
 #include <syscall.h>
@@ -740,16 +741,75 @@ void add_segment(struct kexec_info *info, const void *buf, size_t bufsz,
 }
 
 /**
+ * get_phys_offset_from_kcore - Helper for getting PHYS_OFFSET from kcore.
+ *
+ * Since kernel version 4.19, '/proc/kcore' contains a new
+ * PT_NOTE which carries the VMCOREINFO information.
+ *
+ * If the same is available, use it to retrieve 'PHYS_OFFSET'
+ * from the VMCOREINFO PT_NOTE present in '/proc/kcore'.
+ */
+
+static int get_phys_offset_from_kcore(unsigned long *phys_offset)
+{
+	int fd, ret;
+
+	if ((fd = open("/proc/kcore", O_RDONLY)) < 0) {
+		fprintf(stderr, "Can't open (%s).\n", "/proc/kcore");
+		return EFAILED;
+	}
+
+	ret = read_phys_offset_elf_kcore(fd, phys_offset);
+	if (ret != 0) {
+		dbgprintf("Can't find VMCOREINFO in '/proc/kcore'\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+/**
  * get_memory_ranges_iomem_cb - Helper for get_memory_ranges_iomem.
  */
 
 static int get_memory_ranges_iomem_cb(void *data, int nr, char *str,
 	unsigned long long base, unsigned long long length)
 {
+	int ret;
+	unsigned long phys_offset = UINT64_MAX;
 	struct memory_range *r;
 
 	if (nr >= KEXEC_SEGMENT_MAX)
 		return -1;
+
+	/* Since kernel version 4.19, '/proc/kcore' contains a new
+	 * PT_NOTE which carries the VMCOREINFO information.
+	 *
+	 * If the same is available, one should prefer the same to
+	 * retrieve 'PHYS_OFFSET' value exported by the kernel as this
+	 * is now the standard interface exposed by kernel for sharing
+	 * machine specific details with the userland.
+	 *
+	 * Also on certain arm64 platforms, it has been noticed that due
+	 * to a hole at the start of physical ram exposed to kernel
+	 * (i.e. it doesn't start from address 0), the kernel still
+	 * calculates the 'memstart_addr' kernel variable as 0.
+	 *
+	 * Whereas the SYSTEM_RAM or IOMEM_RESERVED range in '/proc/iomem'
+	 * would carry a first entry whose start address is non-zero
+	 * (as the physical ram exposed to the kernel starts from a
+	 * non-zero address).
+	 *
+	 * In such cases, if we rely on '/proc/iomem' entries to
+	 * calculate the phys_offset, then we will have mismatch
+	 * between the user-space and kernel space 'PHYS_OFFSET'
+	 * value.
+	 */
+
+	ret = get_phys_offset_from_kcore(&phys_offset);
+	if (!ret)
+		if (phys_offset != UINT64_MAX)
+			set_phys_offset(phys_offset);
 
 	r = (struct memory_range *)data + nr;
 
