@@ -1,0 +1,30 @@
+#ifndef ELF_INFO_H
+#define ELF_INFO_H
+
+#define _XOPEN_SOURCE 700
+#define _GNU_SOURCE
+#define _LARGEFILE_SOURCE 1
+#define _FILE_OFFSET_BITS 64
+
+#include <endian.h>
+#include <byteswap.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <elf.h>
+#include <stdbool.h>
+#include <inttypes.h>
+#include <ctype.h>
+
+int read_phys_offset_elf_kcore(int fd, unsigned long *phys_off);
+int read_elf_kcore(int fd);
+int read_elf_vmcore(int fd);
+
+#endif /* ELF_INFO_H */
