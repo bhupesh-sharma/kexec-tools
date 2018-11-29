@@ -515,6 +515,11 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 		}
 
 		nodeoffset = fdt_path_offset(new_buf, "/chosen");
+		if (nodeoffset < 0) {
+			result = nodeoffset;
+			goto on_error;
+		}
+
 		result = fdt_setprop_inplace(new_buf,
 				nodeoffset, "kaslr-seed",
 				&fdt_val64, sizeof(fdt_val64));
@@ -529,6 +534,14 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 	if (on_crash) {
 		/* add linux,elfcorehdr */
 		nodeoffset = fdt_path_offset(new_buf, "/chosen");
+		if (nodeoffset < 0) {
+			result = nodeoffset;
+			dbgprintf("%s: /chosen node not found - can't create "
+				"dtb for dump kernel: %s\n", __func__,
+				fdt_strerror(result));
+			goto on_error;
+		}
+
 		result = fdt_setprop_range(new_buf, nodeoffset,
 				PROP_ELFCOREHDR, &elfcorehdr_mem,
 				address_cells, size_cells);
@@ -541,6 +554,14 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 
 		/* add linux,usable-memory-range */
 		nodeoffset = fdt_path_offset(new_buf, "/chosen");
+		if (nodeoffset < 0) {
+			result = nodeoffset;
+			dbgprintf("%s: /chosen node not found - can't create "
+				"dtb for dump kernel: %s\n", __func__,
+				fdt_strerror(result));
+			goto on_error;
+		}
+
 		result = fdt_setprop_range(new_buf, nodeoffset,
 				PROP_USABLE_MEM_RANGE, &crash_reserved_mem,
 				address_cells, size_cells);
