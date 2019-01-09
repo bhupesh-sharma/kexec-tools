@@ -617,13 +617,19 @@ static void dump_dmesg_structured(int fd)
 		exit(67);
 	}
 
+	fprintf(stderr, "Bhupesh calling read_file_pointer ..1\n");
 	log_buf = read_file_pointer(fd, vaddr_to_offset(log_buf_vaddr));
 
+	fprintf(stderr, "Bhupesh calling read_file_u32 ..2\n");
 	log_first_idx = read_file_u32(fd, vaddr_to_offset(log_first_idx_vaddr));
+
+	fprintf(stderr, "Bhupesh calling read_file_u32 ..3\n");
 	log_next_idx = read_file_u32(fd, vaddr_to_offset(log_next_idx_vaddr));
 
+	fprintf(stderr, "Bhupesh calling vaddr_to_offset ..4\n");
 	log_buf_offset = vaddr_to_offset(log_buf);
 
+	fprintf(stderr, "Bhupesh calling calloc ..5\n");
 	buf = calloc(1, log_sz);
 	if (!buf) {
 		fprintf(stderr, "Failed to malloc %" PRId64 " bytes for the log:"
@@ -635,9 +641,11 @@ static void dump_dmesg_structured(int fd)
 
 	current_idx = log_first_idx;
 	len = 0;
+	fprintf(stderr, "Bhupesh calling while (current_idx != log_next_idx) ..6\n");
 	while (current_idx != log_next_idx) {
 		uint16_t loglen;
 
+		fprintf(stderr, "Bhupesh calling pread ..6a\n");
 		ret = pread(fd, buf, log_sz, log_buf_offset + current_idx);
 		if (ret != log_sz) {
 			fprintf(stderr, "Failed to read log of size %" PRId64 " bytes:"
@@ -654,6 +662,7 @@ static void dump_dmesg_structured(int fd)
 
 		/* escape non-printable characters */
 		text_len = struct_val_u16(buf, log_offset_text_len);
+		fprintf(stderr, "Bhupesh calling calloc ..6b\n");
 		msg = calloc(1, text_len);
 		if (!msg) {
 			fprintf(stderr, "Failed to malloc %u bytes for log text:"
@@ -661,6 +670,7 @@ static void dump_dmesg_structured(int fd)
 			exit(64);
 		}
 
+		fprintf(stderr, "Bhupesh calling pread ..6c\n");
 		ret = pread(fd, msg, text_len, log_buf_offset + current_idx + log_sz);
 		if (ret != text_len) {
 			fprintf(stderr, "Failed to read log text of size %u bytes:"
@@ -687,6 +697,7 @@ static void dump_dmesg_structured(int fd)
 		 * A length == 0 record is the end of buffer marker. Wrap around
 		 * and read the message at the start of the buffer.
 		 */
+		fprintf(stderr, "Bhupesh calling struct_val_u16 ..6d\n");
 		loglen = struct_val_u16(buf, log_offset_len);
 		if (!loglen)
 			current_idx = 0;
@@ -694,6 +705,8 @@ static void dump_dmesg_structured(int fd)
 			/* Move to next record */
 			current_idx += loglen;
 	}
+
+	fprintf(stderr, "Bhupesh calling free ..7\n");
 	free(buf);
 	if (len)
 		write_to_stdout(out_buf, len);
