@@ -623,6 +623,24 @@ char *slurp_file_len(const char *filename, off_t size, off_t *nread)
 	return slurp_fd(fd, filename, size, nread);
 }
 
+#define COPY_TO_UNCOMPRESSED_FILE
+
+#ifdef COPY_TO_UNCOMPRESSED_FILE
+#define FILENAME_IMAGE		"/tmp/ImageXXXXXX"
+static int kernel_file_is_compressed = 0;
+#endif
+
+int is_gzip_compressed_file(const char *filename, off_t *r_size)
+{
+	char *kernel_buf;
+
+	kernel_buf = zlib_decompress_file(filename, r_size);
+	if (!kernel_buf)
+		return 0;
+
+	return 1;
+}
+
 char *slurp_decompress_file(const char *filename, off_t *r_size)
 {
 	char *kernel_buf;
@@ -1171,6 +1189,12 @@ static int do_kexec_file_load(int fileind, int argc, char **argv,
 	int ret = 0;
 	char *kernel_buf;
 	off_t kernel_size;
+#ifdef COPY_TO_UNCOMPRESSED_FILE
+	int kernel_uncompressed_fd = 0;
+	char *fname = NULL;
+	char *kernel_uncompressed_buf = NULL;
+	off_t kernel_uncompressed_size;
+#endif
 
 	memset(&info, 0, sizeof(info));
 	info.segment = NULL;
@@ -1205,6 +1229,71 @@ static int do_kexec_file_load(int fileind, int argc, char **argv,
 	/* slurp in the input kernel */
 	kernel_buf = slurp_decompress_file(kernel, &kernel_size);
 
+#ifdef COPY_TO_UNCOMPRESSED_FILE
+	/* Several distros use 'make zinstall' rule inside
+	 * 'arch/arm64/boot/Makefile' to install the arm64
+	 * Image.gz compressed file inside the boot destination
+	 * directory (for e.g. /boot).
+	 *
+	 * Currently we cannot use kexec_file_load() to load vmlinuz
+	 * (or Image.gz).
+	 *
+	 * To support Image.gz, we should:
+	 * a). Copy the contents of Image.gz to a temporary file.
+	 * b). Decompress (gunzip-decompress) the contents inside the
+	 *     temporary file.
+	 * c). Pass the 'fd' of the temporary file to the kernel space.
+	 *
+	 * So basically the kernel space still gets a decompressed
+	 * kernel image to load via kexec_tools
+	 */
+
+	if (is_gzip_compressed_file(kernel, &kernel_size)) {
+		kernel_file_is_compressed = 1;
+		if (!(fname = strdup(FILENAME_IMAGE))) {
+			fprintf(stderr, "Can't duplicate strings %s:%s\n",
+					fname, strerror(errno));
+			return -1;
+		}
+
+		if ((kernel_uncompressed_fd = mkstemp(fname)) < 0) {
+			fprintf(stderr, "Can't open file %s:%s\n", fname,
+					strerror(errno));
+			return -1;
+		}
+
+		kernel_uncompressed_size = kernel_size;
+
+		kernel_uncompressed_buf =
+			(char *) calloc(kernel_uncompressed_size, sizeof(off_t));
+		if (!kernel_uncompressed_buf) {
+			fprintf(stderr, "Can't calloc %ld bytes\n",
+					kernel_uncompressed_size);
+			return -ENOMEM;
+		}
+
+		memcpy(kernel_uncompressed_buf, kernel_buf,
+				kernel_uncompressed_size);
+
+		if (write(kernel_uncompressed_fd, kernel_uncompressed_buf,
+			  kernel_uncompressed_size) != kernel_uncompressed_size) {
+			fprintf(stderr, "Can't write the uncompressed file(%s). %s\n",
+					fname, strerror(errno));
+			return -1;
+		}
+
+		close(kernel_uncompressed_fd);
+
+		/* Open the tmp file again, this time in RD_ONLY mode */
+		kernel_uncompressed_fd = open(fname, O_RDONLY);
+		if (kernel_uncompressed_fd == -1) {
+			fprintf(stderr, "Failed to open file %s:%s\n",
+				fname, strerror(errno));
+			return -1;
+		}
+	}
+#endif
+
 	for (i = 0; i < file_types; i++) {
 		if (file_type[i].probe(kernel_buf, kernel_size) >= 0)
 			break;
@@ -1229,11 +1318,28 @@ static int do_kexec_file_load(int fileind, int argc, char **argv,
 	if (info.initrd_fd == -1)
 		info.kexec_flags |= KEXEC_FILE_NO_INITRAMFS;
 
-	ret = kexec_file_load(kernel_fd, info.initrd_fd, info.command_line_len,
-			info.command_line, info.kexec_flags);
+#ifdef COPY_TO_UNCOMPRESSED_FILE
+	if (kernel_file_is_compressed)
+		ret = kexec_file_load(kernel_uncompressed_fd,
+				info.initrd_fd, info.command_line_len,
+				info.command_line, info.kexec_flags);
+#else
+	ret = kexec_file_load(kernel_fd, info.initrd_fd,
+			info.command_line_len, info.command_line,
+			info.kexec_flags);
+#endif
+
 	if (ret != 0)
 		fprintf(stderr, "kexec_file_load failed: %s\n",
 					strerror(errno));
+
+#ifdef COPY_TO_UNCOMPRESSED_FILE
+	if (kernel_file_is_compressed) {
+		unlink(fname);
+		close(kernel_uncompressed_fd);
+	}
+#endif
+
 	return ret;
 }
 

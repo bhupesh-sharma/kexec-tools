@@ -11,6 +11,7 @@
 
 int uImage_arm64_probe(const char *buf, off_t len)
 {
+	dbgprintf("%s: Bhupesh is here.\n", __func__);
 	return uImage_probe_kernel(buf, len, IH_ARCH_ARM64);
 }
 

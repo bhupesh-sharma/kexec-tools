@@ -21,6 +21,7 @@ int elf_arm64_probe(const char *kernel_buf, off_t kernel_size)
 	struct mem_ehdr ehdr;
 	int result;
 
+	dbgprintf("%s: Bhupesh is here.\n", __func__);
 	result = build_elf_exec_info(kernel_buf, kernel_size, &ehdr, 0);
 
 	if (result < 0) {
@@ -37,6 +38,7 @@ int elf_arm64_probe(const char *kernel_buf, off_t kernel_size)
 	result = 0;
 on_exit:
 	free_elf_info(&ehdr);
+	dbgprintf("%s: Bhupesh is here return result=%d\n", __func__, result);
 	return result;
 }
 

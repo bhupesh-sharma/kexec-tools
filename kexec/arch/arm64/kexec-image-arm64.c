@@ -18,6 +18,7 @@ int image_arm64_probe(const char *kernel_buf, off_t kernel_size)
 {
 	const struct arm64_image_header *h;
 
+	dbgprintf("%s: Bhupesh is here.\n", __func__);
 	if (kernel_size < sizeof(struct arm64_image_header)) {
 		dbgprintf("%s: No arm64 image header.\n", __func__);
 		return -1;
@@ -29,6 +30,8 @@ int image_arm64_probe(const char *kernel_buf, off_t kernel_size)
 		dbgprintf("%s: Bad arm64 image header.\n", __func__);
 		return -1;
 	}
+	
+	dbgprintf("%s: Bhupesh is here return 0.\n", __func__);
 
 	return 0;
 }
@@ -40,6 +43,7 @@ int image_arm64_load(int argc, char **argv, const char *kernel_buf,
 	unsigned long kernel_segment;
 	int result;
 
+	dbgprintf("%s: Bhupesh is here 0.\n", __func__);
 	if (info->file_mode) {
 		if (arm64_opts.initrd) {
 			info->initrd_fd = open(arm64_opts.initrd, O_RDONLY);
@@ -52,11 +56,14 @@ int image_arm64_load(int argc, char **argv, const char *kernel_buf,
 			}
 		}
 
+		dbgprintf("%s: Bhupesh is here 1.\n", __func__);
 		if (arm64_opts.command_line) {
 			info->command_line = (char *)arm64_opts.command_line;
 			info->command_line_len =
 					strlen(arm64_opts.command_line) + 1;
 		}
+		
+		dbgprintf("%s: Bhupesh is here 2 return 0.\n", __func__);
 
 		return 0;
 	}
