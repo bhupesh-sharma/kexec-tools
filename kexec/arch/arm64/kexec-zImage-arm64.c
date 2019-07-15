@@ -43,6 +43,7 @@
 int zImage_arm64_probe(const char *kernel_buf, off_t kernel_size)
 {
 	int ret = -1;
+	int fd = 0;
 	int kernel_fd = 0;
 	char *fname = NULL;
 	char *kernel_uncompressed_buf = NULL;
@@ -59,7 +60,7 @@ int zImage_arm64_probe(const char *kernel_buf, off_t kernel_size)
 		return -1;
 	}
 
-	if ((kernel_fd = mkstemp(fname)) < 0) {
+	if ((fd = mkstemp(fname)) < 0) {
 		dbgprintf("%s: Can't open file %s\n", __func__,
 				fname);
 		ret = -1;
@@ -95,7 +96,7 @@ int zImage_arm64_probe(const char *kernel_buf, off_t kernel_size)
 		goto fail_bad_header;
 	}
 
-	if (write(kernel_fd, kernel_uncompressed_buf,
+	if (write(fd, kernel_uncompressed_buf,
 				kernel_size) != kernel_size) {
 		dbgprintf("%s: Can't write the uncompressed file %s\n",
 				__func__, fname);
@@ -103,7 +104,7 @@ int zImage_arm64_probe(const char *kernel_buf, off_t kernel_size)
 		goto fail_bad_header;
 	}
 
-	close(kernel_fd);
+	close(fd);
 
 	/* Open the tmp file again, this time in O_RDONLY mode, as
 	 * opening the file in O_RDWR and calling kexec_file_load()
@@ -117,9 +118,10 @@ int zImage_arm64_probe(const char *kernel_buf, off_t kernel_size)
 		goto fail_bad_header;
 	}
 
+	unlink(fname);
+
 	free(kernel_uncompressed_buf);
 	free(fname);
-	unlink(fname);
 
 	return kernel_fd;
 
@@ -127,8 +129,8 @@ fail_bad_header:
 	free(kernel_uncompressed_buf);
 
 fail_calloc:
-	if (kernel_fd >= 0)
-		close(kernel_fd);
+	if (fd >= 0)
+		close(fd);
 
 	unlink(fname);
 
