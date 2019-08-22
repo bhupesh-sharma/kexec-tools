@@ -629,9 +629,12 @@ char *slurp_decompress_file(const char *filename, off_t *r_size)
 
 	kernel_buf = zlib_decompress_file(filename, r_size);
 	if (!kernel_buf) {
+		fprintf(stderr, "Bhupesh: Not a gzip file\n");
 		kernel_buf = lzma_decompress_file(filename, r_size);
-		if (!kernel_buf)
+		if (!kernel_buf) {
+			fprintf(stderr, "Bhupesh: Not a lzma file\n");
 			return slurp_file(filename, r_size);
+		}
 	}
 	return kernel_buf;
 }
@@ -718,6 +721,8 @@ static int my_load(const char *type, int fileind, int argc, char **argv,
 		return -1;
 	}
 	kernel = argv[fileind];
+	fprintf(stderr, "Bhupesh: calling slurp_decompress_file\n");
+
 	/* slurp in the input kernel */
 	kernel_buf = slurp_decompress_file(kernel, &kernel_size);
 
