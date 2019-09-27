@@ -842,6 +842,7 @@ int load_crashdump_segments(struct kexec_info *info, char* mod_cmdline,
 	struct crash_elf_info elf_info;
 	unsigned kexec_arch;
 
+	unsigned long long stext_sym_addr = get_kernel_sym("_stext");
 	memset(&elf_info, 0x0, sizeof(elf_info));
 
 	/* Constant parts of the elf_info */
@@ -899,6 +900,17 @@ int load_crashdump_segments(struct kexec_info *info, char* mod_cmdline,
 
 	if (get_kernel_page_offset(info, &elf_info))
 		return -1;
+	dbgprintf("%s: page_offset:   %016llx\n", __func__,
+			elf_info.page_offset);
+
+	if (stext_sym_addr == 0) {
+		fprintf(stderr, "Can't get the symbol of _stext.\n");
+		return -1;
+	}
+	
+	dbgprintf("%s: stext_sym_addr:   %016llx\n", __func__,
+			stext_sym_addr);
+
 
 	if (get_kernel_paddr(info, &elf_info))
 		return -1;
