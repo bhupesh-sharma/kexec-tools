@@ -47,12 +47,46 @@
 #include "x86-linux-setup.h"
 #include <x86/x86-linux.h>
 
+/*
+ * Incorrect address
+ */
+#define NOT_KV_ADDR	(0x0)
+#define ULONGLONG_MAX	(~0ULL)
+#define NOT_PADDR	(ULONGLONG_MAX)
+#define __START_KERNEL_map	(0xffffffff80000000)
+
 extern struct arch_options_t arch_options;
 
 static int get_kernel_page_offset(struct kexec_info *UNUSED(info),
 				  struct crash_elf_info *elf_info)
 {
-	int kv;
+	int i, kv, fd;
+	unsigned long long phys_start;
+	unsigned long long virt_start;
+
+	fprintf(stderr, "Bhupesh, Inside get_kernel_page_offset\n");
+	if ((fd = open("/proc/kcore", O_RDONLY)) < 0) {
+		fprintf(stderr, "Can't open (%s).\n", "/proc/kcore");
+		return EFAILED;
+	}
+
+	read_elf(fd);
+
+	/*
+	 * Linux 4.19 (only) adds KCORE_REMAP PT_LOADs, which have
+	 * virt_start < __START_KERNEL_map, to /proc/kcore. In order
+	 * not to select them, we select the last valid PT_LOAD.
+	 */
+	for (i = 0; get_pt_load(i, &phys_start, NULL, &virt_start, NULL);
+		    i++) {
+		if (virt_start != NOT_KV_ADDR
+				&& virt_start < __START_KERNEL_map
+				&& phys_start != NOT_PADDR) {
+			elf_info->page_offset = virt_start - phys_start;
+			fprintf(stderr, "Bhupesh, elf_info->page_offset: %lx\n", elf_info->page_offset);
+			return 0;
+		}
+	}
 
 	if (elf_info->machine == EM_X86_64) {
 		kv = kernel_version();
