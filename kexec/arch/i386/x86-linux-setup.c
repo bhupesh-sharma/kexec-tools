@@ -57,6 +57,8 @@ void setup_linux_bootloader_parameters_high(
 	char *cmdline_ptr;
 	unsigned long initrd_base, initrd_addr_max;
 
+	dbgprintf("Final kernel cmdline: '%s'\n", cmdline);
+
 	/* Say I'm a boot loader */
 	real_mode->loader_type = LOADER_TYPE_KEXEC << 4;
 

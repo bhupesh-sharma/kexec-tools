@@ -243,6 +243,7 @@ static int set_bootargs(struct dtb *dtb, const char *command_line)
 		return EFAILED;
 	}
 
+	dbgprintf("Final kernel cmdline: '%s'\n", command_line);
 	return 0;
 }
 
