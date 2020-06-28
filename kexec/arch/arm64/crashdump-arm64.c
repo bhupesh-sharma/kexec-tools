@@ -27,11 +27,11 @@
 static struct memory_ranges system_memory_rgns;
 
 /* memory range reserved for crashkernel */
-struct memory_range crash_reserved_mem;
+struct memory_range crash_reserved_mem[CRASH_MAX_RESERVED_RANGES];
 struct memory_ranges usablemem_rgns = {
 	.size = 0,
-	.max_size = 1,
-	.ranges = &crash_reserved_mem,
+	.max_size = CRASH_MAX_RESERVED_RANGES,
+	.ranges = crash_reserved_mem,
 };
 
 struct memory_range elfcorehdr_mem;
@@ -84,7 +84,10 @@ static int iomem_range_callback(void *UNUSED(data), int UNUSED(nr),
 				char *str, unsigned long long base,
 				unsigned long long length)
 {
-	if (strncmp(str, CRASH_KERNEL, strlen(CRASH_KERNEL)) == 0)
+	if (strncmp(str, CRASH_KERNEL_LOW, strlen(CRASH_KERNEL_LOW)) == 0)
+		return mem_regions_alloc_and_add(&usablemem_rgns,
+						base, length, RANGE_RAM);
+	else if (strncmp(str, CRASH_KERNEL, strlen(CRASH_KERNEL)) == 0)
 		return mem_regions_alloc_and_add(&usablemem_rgns,
 						base, length, RANGE_RAM);
 	else if (strncmp(str, SYSTEM_RAM, strlen(SYSTEM_RAM)) == 0)
@@ -103,7 +106,7 @@ int is_crashkernel_mem_reserved(void)
 	if (!usablemem_rgns.size)
 		kexec_iomem_for_each_line(NULL, iomem_range_callback, NULL);
 
-	return crash_reserved_mem.start != crash_reserved_mem.end;
+	return usablemem_rgns.size;
 }
 
 /*
@@ -117,6 +120,8 @@ int is_crashkernel_mem_reserved(void)
  */
 static int crash_get_memory_ranges(void)
 {
+	int i;
+
 	/*
 	 * First read all memory regions that can be considered as
 	 * system memory including the crash area.
@@ -124,16 +129,19 @@ static int crash_get_memory_ranges(void)
 	if (!usablemem_rgns.size)
 		kexec_iomem_for_each_line(NULL, iomem_range_callback, NULL);
 
-	/* allow only a single region for crash dump kernel */
-	if (usablemem_rgns.size != 1)
+	/* allow one or two region for crash dump kernel */
+	if (!usablemem_rgns.size)
 		return -EINVAL;
 
-	dbgprint_mem_range("Reserved memory range", &crash_reserved_mem, 1);
+	dbgprint_mem_range("Reserved memory range",
+			usablemem_rgns.ranges, usablemem_rgns.size);
 
-	if (mem_regions_alloc_and_exclude(&system_memory_rgns,
-						&crash_reserved_mem)) {
-		fprintf(stderr, "Cannot allocate memory for ranges\n");
-		return -ENOMEM;
+	for (i = 0; i < usablemem_rgns.size; i++) {
+		if (mem_regions_alloc_and_exclude(&system_memory_rgns,
+					&crash_reserved_mem[i])) {
+			fprintf(stderr, "Cannot allocate memory for ranges\n");
+			return -ENOMEM;
+		}
 	}
 
 	/*
@@ -194,7 +202,8 @@ int load_crashdump_segments(struct kexec_info *info)
 		return EFAILED;
 
 	elfcorehdr = add_buffer_phys_virt(info, buf, bufsz, bufsz, 0,
-		crash_reserved_mem.start, crash_reserved_mem.end,
+		crash_reserved_mem[usablemem_rgns.size - 1].start,
+		crash_reserved_mem[usablemem_rgns.size - 1].end,
 		-1, 0);
 
 	elfcorehdr_mem.start = elfcorehdr;
@@ -212,21 +221,23 @@ int load_crashdump_segments(struct kexec_info *info)
  * virt_to_phys() in add_segment().
  * So let's fix up those values for later use so the memory base
  * (arm64_mm.phys_offset) will be correctly replaced with
- * crash_reserved_mem.start.
+ * crash_reserved_mem[usablemem_rgns.size - 1].start.
  */
 void fixup_elf_addrs(struct mem_ehdr *ehdr)
 {
 	struct mem_phdr *phdr;
 	int i;
 
-	ehdr->e_entry += - arm64_mem.phys_offset + crash_reserved_mem.start;
+	ehdr->e_entry += -arm64_mem.phys_offset +
+		crash_reserved_mem[usablemem_rgns.size - 1].start;
 
 	for (i = 0; i < ehdr->e_phnum; i++) {
 		phdr = &ehdr->e_phdr[i];
 		if (phdr->p_type != PT_LOAD)
 			continue;
 		phdr->p_paddr +=
-			(-arm64_mem.phys_offset + crash_reserved_mem.start);
+			(-arm64_mem.phys_offset +
+			 crash_reserved_mem[usablemem_rgns.size - 1].start);
 	}
 }
 
@@ -235,11 +246,11 @@ int get_crash_kernel_load_range(uint64_t *start, uint64_t *end)
 	if (!usablemem_rgns.size)
 		kexec_iomem_for_each_line(NULL, iomem_range_callback, NULL);
 
-	if (!crash_reserved_mem.end)
+	if (!usablemem_rgns.size)
 		return -1;
 
-	*start = crash_reserved_mem.start;
-	*end = crash_reserved_mem.end;
+	*start = crash_reserved_mem[usablemem_rgns.size - 1].start;
+	*end = crash_reserved_mem[usablemem_rgns.size - 1].end;
 
 	return 0;
 }
