@@ -418,6 +418,42 @@ static int fdt_setprop_range(void *fdt, int nodeoffset,
 	return result;
 }
 
+/*
+ * fdt_setprop_ranges - Used for linux,usable-memory-range
+ */
+static int fdt_setprop_ranges(void *fdt, int nodeoffset,
+				const char *name, struct memory_ranges *ranges,
+				uint32_t address_cells, uint32_t size_cells)
+{
+	void *buf, *prop;
+	size_t buf_size;
+	int i, result;
+
+	buf_size = (address_cells + size_cells) * sizeof(uint32_t) *
+		ranges->size;
+	prop = buf = xmalloc(buf_size);
+
+	/*
+	 * crash dump kernel support at most two regions, low_region and high region.
+	 * To make compatibility with existing user-space and older kdump, the low
+	 * region is always the last range of linux,usable-memory-range if exist.
+	 */
+	for (i = ranges->size - 1; i >= 0; i--) {
+		fill_property(prop, ranges->ranges[i].start, address_cells);
+		prop += address_cells * sizeof(uint32_t);
+
+		fill_property(prop, ranges->ranges[i].end -
+				ranges->ranges[i].start + 1, size_cells);
+		prop += size_cells * sizeof(uint32_t);
+	}
+
+	result = fdt_setprop(fdt, nodeoffset, name, buf, buf_size);
+
+	free(buf);
+
+	return result;
+}
+
 /**
  * setup_2nd_dtb - Setup the 2nd stage kernel's dtb.
  */
@@ -431,7 +467,7 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 	int len, range_len;
 	int nodeoffset;
 	int new_size;
-	int result, kaslr_seed;
+	int i, result, kaslr_seed;
 
 	result = fdt_check_header(dtb->buf);
 
@@ -462,18 +498,21 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 		goto on_error;
 	}
 
-	if (!cells_size_fitted(address_cells, size_cells,
-				&crash_reserved_mem)) {
-		fprintf(stderr, "kexec: usable memory range doesn't fit cells-size.\n");
-		result = -EINVAL;
-		goto on_error;
+	for (i = 0; i < usablemem_rgns.size; i++) {
+		if (!cells_size_fitted(address_cells, size_cells,
+					&crash_reserved_mem[i])) {
+			fprintf(stderr,
+					"kexec: usable memory range doesn't fit cells-size.\n");
+			result = -EINVAL;
+			goto on_error;
+		}
 	}
 
 	/* duplicate dt blob */
 	range_len = sizeof(uint32_t) * (address_cells + size_cells);
 	new_size = fdt_totalsize(dtb->buf)
 		+ fdt_prop_len(PROP_ELFCOREHDR, range_len)
-		+ fdt_prop_len(PROP_USABLE_MEM_RANGE, range_len);
+		+ fdt_prop_len(PROP_USABLE_MEM_RANGE, range_len * usablemem_rgns.size);
 
 	new_buf = xmalloc(new_size);
 	result = fdt_open_into(dtb->buf, new_buf, new_size);
@@ -569,8 +608,8 @@ static int setup_2nd_dtb(struct dtb *dtb, char *command_line, int on_crash)
 
 		/* add linux,usable-memory-range */
 		nodeoffset = fdt_path_offset(new_buf, "/chosen");
-		result = fdt_setprop_range(new_buf, nodeoffset,
-				PROP_USABLE_MEM_RANGE, &crash_reserved_mem,
+		result = fdt_setprop_ranges(new_buf, nodeoffset,
+				PROP_USABLE_MEM_RANGE, &usablemem_rgns,
 				address_cells, size_cells);
 		if (result) {
 			dbgprintf("%s: fdt_setprop failed: %s\n", __func__,
@@ -603,13 +642,13 @@ unsigned long arm64_locate_kernel_segment(struct kexec_info *info)
 	if (info->kexec_flags & KEXEC_ON_CRASH) {
 		unsigned long hole_end;
 
-		hole = (crash_reserved_mem.start < mem_min ?
-				mem_min : crash_reserved_mem.start);
+		hole = (crash_reserved_mem[usablemem_rgns.size - 1].start < mem_min ?
+				mem_min : crash_reserved_mem[usablemem_rgns.size - 1].start);
 		hole = _ALIGN_UP(hole, MiB(2));
 		hole_end = hole + arm64_mem.text_offset + arm64_mem.image_size;
 
 		if ((hole_end > mem_max) ||
-		    (hole_end > crash_reserved_mem.end)) {
+		    (hole_end > crash_reserved_mem[usablemem_rgns.size - 1].end)) {
 			dbgprintf("%s: Crash kernel out of range\n", __func__);
 			hole = ULONG_MAX;
 		}
@@ -677,7 +716,7 @@ int arm64_load_other_segments(struct kexec_info *info,
 
 	hole_min = image_base + arm64_mem.image_size;
 	if (info->kexec_flags & KEXEC_ON_CRASH)
-		hole_max = crash_reserved_mem.end;
+		hole_max = crash_reserved_mem[usablemem_rgns.size - 1].end;
 	else
 		hole_max = ULONG_MAX;
 
