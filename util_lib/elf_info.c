@@ -45,6 +45,7 @@ static uint16_t log_offset_len = UINT16_MAX;
 static uint16_t log_offset_text_len = UINT16_MAX;
 
 static uint64_t phys_offset = UINT64_MAX;
+static uint64_t tcr_el1_t1sz = UINT64_MAX;
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 #define ELFDATANATIVE ELFDATA2LSB
@@ -405,6 +406,20 @@ void scan_vmcoreinfo(char *start, size_t size)
 			if (strlen(endp) != 0)
 				phys_offset = strtoul(pos + strlen(str), &endp, 16);
 			if ((phys_offset == LONG_MAX) || strlen(endp) != 0) {
+				fprintf(stderr, "Invalid data %s\n",
+					pos);
+				break;
+			}
+		}
+
+		/* Check for TCR_EL1_T1SZ */
+		str = "NUMBER(TCR_EL1_T1SZ)=";
+		if (memcmp(str, pos, strlen(str)) == 0) {
+			tcr_el1_t1sz = strtoul(pos + strlen(str), &endp,
+							10);
+			if (strlen(endp) != 0)
+				tcr_el1_t1sz = strtoul(pos + strlen(str), &endp, 16);
+			if ((tcr_el1_t1sz == LONG_MAX) || strlen(endp) != 0) {
 				fprintf(stderr, "Invalid data %s\n",
 					pos);
 				break;
@@ -811,6 +826,26 @@ int read_phys_offset_elf_kcore(int fd, unsigned long *phys_off)
 		 */
 		if (phys_offset != UINT64_MAX) {
 			*phys_off = phys_offset;
+			return ret;
+		}
+	}
+
+	return 2;
+}
+
+int read_tcr_el1_t1sz_elf_kcore(int fd, unsigned long *tcr_t1sz)
+{
+	int ret;
+
+	*tcr_t1sz = UINT64_MAX;
+
+	ret = read_elf(fd);
+	if (!ret) {
+		/* If we have a valid 'tcr_el1_t1sz' by now,
+		 * return it to the caller now.
+		 */
+		if (tcr_el1_t1sz != UINT64_MAX) {
+			*tcr_t1sz = tcr_el1_t1sz;
 			return ret;
 		}
 	}

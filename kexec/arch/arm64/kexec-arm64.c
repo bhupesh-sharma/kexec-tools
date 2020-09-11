@@ -25,6 +25,7 @@
 
 #include "kexec.h"
 #include "kexec-arm64.h"
+#include "common-arm64.h"
 #include "crashdump.h"
 #include "crashdump-arm64.h"
 #include "dt-ops.h"
@@ -42,20 +43,10 @@
 #define PROP_ELFCOREHDR "linux,elfcorehdr"
 #define PROP_USABLE_MEM_RANGE "linux,usable-memory-range"
 
-#define PAGE_OFFSET_36 ((0xffffffffffffffffUL) << 36)
-#define PAGE_OFFSET_39 ((0xffffffffffffffffUL) << 39)
-#define PAGE_OFFSET_42 ((0xffffffffffffffffUL) << 42)
-#define PAGE_OFFSET_47 ((0xffffffffffffffffUL) << 47)
-#define PAGE_OFFSET_48 ((0xffffffffffffffffUL) << 48)
-
 /* Global flag which indicates that we have tried reading
  * PHYS_OFFSET from 'kcore' already.
  */
 static bool try_read_phys_offset_from_kcore = false;
-
-/* Machine specific details. */
-static int va_bits;
-static unsigned long page_offset;
 
 /* Global varables the core kexec routines expect. */
 
@@ -797,115 +788,6 @@ static inline void set_phys_offset(uint64_t v, char *set_method)
 				__func__, arm64_mem.phys_offset,
 				set_method);
 	}
-}
-
-/**
- * get_va_bits - Helper for getting VA_BITS
- */
-
-static int get_va_bits(void)
-{
-	unsigned long long stext_sym_addr = get_kernel_sym("_stext");
-
-	if (stext_sym_addr == 0) {
-		fprintf(stderr, "Can't get the symbol of _stext.\n");
-		return -1;
-	}
-
-	/* Derive va_bits as per arch/arm64/Kconfig */
-	if ((stext_sym_addr & PAGE_OFFSET_36) == PAGE_OFFSET_36) {
-		va_bits = 36;
-	} else if ((stext_sym_addr & PAGE_OFFSET_39) == PAGE_OFFSET_39) {
-		va_bits = 39;
-	} else if ((stext_sym_addr & PAGE_OFFSET_42) == PAGE_OFFSET_42) {
-		va_bits = 42;
-	} else if ((stext_sym_addr & PAGE_OFFSET_47) == PAGE_OFFSET_47) {
-		va_bits = 47;
-	} else if ((stext_sym_addr & PAGE_OFFSET_48) == PAGE_OFFSET_48) {
-		va_bits = 48;
-	} else {
-		fprintf(stderr,
-			"Cannot find a proper _stext for calculating VA_BITS\n");
-		return -1;
-	}
-
-	dbgprintf("va_bits : %d\n", va_bits);
-
-	return 0;
-}
-
-/**
- * get_page_offset - Helper for getting PAGE_OFFSET
- */
-
-static int get_page_offset(void)
-{
-	int ret;
-
-	ret = get_va_bits();
-	if (ret < 0)
-		return ret;
-
-	page_offset = (0xffffffffffffffffUL) << (va_bits - 1);
-	dbgprintf("page_offset : %lx\n", page_offset);
-
-	return 0;
-}
-
-/**
- * get_phys_offset_from_vmcoreinfo_pt_note - Helper for getting PHYS_OFFSET
- * from VMCOREINFO note inside 'kcore'.
- */
-
-static int get_phys_offset_from_vmcoreinfo_pt_note(unsigned long *phys_offset)
-{
-	int fd, ret = 0;
-
-	if ((fd = open("/proc/kcore", O_RDONLY)) < 0) {
-		fprintf(stderr, "Can't open (%s).\n", "/proc/kcore");
-		return EFAILED;
-	}
-
-	ret = read_phys_offset_elf_kcore(fd, phys_offset);
-
-	close(fd);
-	return ret;
-}
-
-/**
- * get_phys_base_from_pt_load - Helper for getting PHYS_OFFSET
- * from PT_LOADs inside 'kcore'.
- */
-
-int get_phys_base_from_pt_load(unsigned long *phys_offset)
-{
-	int i, fd, ret;
-	unsigned long long phys_start;
-	unsigned long long virt_start;
-
-	ret = get_page_offset();
-	if (ret < 0)
-		return ret;
-
-	if ((fd = open("/proc/kcore", O_RDONLY)) < 0) {
-		fprintf(stderr, "Can't open (%s).\n", "/proc/kcore");
-		return EFAILED;
-	}
-
-	read_elf(fd);
-
-	for (i = 0; get_pt_load(i,
-		    &phys_start, NULL, &virt_start, NULL);
-	 	    i++) {
-		if (virt_start != NOT_KV_ADDR
-				&& virt_start >= page_offset
-				&& phys_start != NOT_PADDR)
-			*phys_offset = phys_start -
-				(virt_start & ~page_offset);
-	}
-
-	close(fd);
-	return 0;
 }
 
 static bool to_be_excluded(char *str)

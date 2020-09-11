@@ -122,6 +122,16 @@ do { \
 		fprintf(stderr, __VA_ARGS__); \
 } while(0)
 
+/* Indirect stringification.  Doing two levels allows the parameter to be a
+ * macro itself.  For example, compile with -DFOO=bar, __stringify(FOO)
+ * converts to "bar".
+ *
+ * Copied from linux source: 'include/linux/stringify.h'
+ */
+
+#define __stringify_1(x...)	#x
+#define __stringify(x...)	__stringify_1(x)
+
 struct kexec_segment {
 	const void *buf;
 	size_t bufsz;

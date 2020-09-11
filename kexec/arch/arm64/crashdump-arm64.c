@@ -16,6 +16,7 @@
 #include <linux/elf.h>
 
 #include "kexec.h"
+#include "common-arm64.h"
 #include "crashdump.h"
 #include "crashdump-arm64.h"
 #include "iomem.h"
@@ -45,27 +46,6 @@ static struct crash_elf_info elf_info = {
 #endif
 	.machine	= EM_AARCH64,
 };
-
-/*
- * Note: The returned value is correct only if !CONFIG_RANDOMIZE_BASE.
- */
-static uint64_t get_kernel_page_offset(void)
-{
-	int i;
-
-	if (elf_info.kern_vaddr_start == UINT64_MAX)
-		return UINT64_MAX;
-
-	/* Current max virtual memory range is 48-bits. */
-	for (i = 48; i > 0; i--)
-		if (!(elf_info.kern_vaddr_start & (1UL << i)))
-			break;
-
-	if (i <= 0)
-		return UINT64_MAX;
-	else
-		return UINT64_MAX << i;
-}
 
 /*
  * iomem_range_callback() - callback called for each iomem region
@@ -169,6 +149,7 @@ int load_crashdump_segments(struct kexec_info *info)
 {
 	unsigned long elfcorehdr;
 	unsigned long bufsz;
+	unsigned long page_offset;
 	void *buf;
 	int err;
 
@@ -182,7 +163,11 @@ int load_crashdump_segments(struct kexec_info *info)
 	if (err)
 		return EFAILED;
 
-	elf_info.page_offset = get_kernel_page_offset();
+	err = get_page_offset(&page_offset);
+	if (err)
+		return EFAILED;
+
+	elf_info.page_offset = page_offset;
 	dbgprintf("%s: page_offset:   %016llx\n", __func__,
 			elf_info.page_offset);
 
