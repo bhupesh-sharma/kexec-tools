@@ -11,6 +11,7 @@ arm64_MEM_REGIONS = kexec/mem_regions.c
 arm64_CPPFLAGS += -I $(srcdir)/kexec/
 
 arm64_KEXEC_SRCS += \
+	kexec/arch/arm64/common-arm64.c \
 	kexec/arch/arm64/crashdump-arm64.c \
 	kexec/arch/arm64/kexec-arm64.c \
 	kexec/arch/arm64/kexec-elf-arm64.c \
@@ -27,6 +28,7 @@ arm64_PHYS_TO_VIRT =
 
 dist += $(arm64_KEXEC_SRCS) \
 	kexec/arch/arm64/include/arch/options.h \
+	kexec/arch/arm64/common-arm64.h \
 	kexec/arch/arm64/crashdump-arm64.h \
 	kexec/arch/arm64/image-header.h \
 	kexec/arch/arm64/iomem.h \
