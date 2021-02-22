@@ -54,7 +54,10 @@
 static bool try_read_phys_offset_from_kcore = false;
 
 /* Machine specific details. */
-static int va_bits;
+static int va_bits = INT_MAX;
+static int vabits_actual = INT_MAX;
+static bool flipped_va;
+static unsigned long kimage_voffset;
 static unsigned long page_offset;
 
 /* Global varables the core kexec routines expect. */
@@ -822,6 +825,15 @@ int arm64_load_other_segments(struct kexec_info *info,
 	return 0;
 }
 
+/*
+ * The linear kernel range starts at the bottom of the virtual address
+ * space. Testing the top bit for the start of the region is a
+ * sufficient check and avoids having to worry about the tag.
+ */
+#define is_linear_addr(addr)	(flipped_va ?	\
+	(!((unsigned long)(addr) & (1UL << (vabits_actual - 1)))) : \
+	(!!((unsigned long)(addr) & (1UL << (vabits_actual - 1)))))
+
 /**
  * virt_to_phys - For processing elf file values.
  */
@@ -830,7 +842,10 @@ unsigned long virt_to_phys(unsigned long v)
 {
 	unsigned long p;
 
-	p = v - get_vp_offset() + get_phys_offset();
+	if (is_linear_addr(v))
+		p = (v & ~page_offset) + get_phys_offset();
+	else
+		p = v - kimage_voffset;
 
 	return p;
 }
@@ -844,7 +859,7 @@ unsigned long phys_to_virt(struct crash_elf_info *elf_info,
 {
 	unsigned long v;
 
-	v = p - get_phys_offset() + elf_info->page_offset;
+	v = (p - get_phys_offset()) |  elf_info->page_offset;
 
 	return v;
 }
@@ -883,24 +898,29 @@ static int get_va_bits(void)
 		return -1;
 	}
 
-	/* Derive va_bits as per arch/arm64/Kconfig */
-	if ((stext_sym_addr & PAGE_OFFSET_36) == PAGE_OFFSET_36) {
-		va_bits = 36;
-	} else if ((stext_sym_addr & PAGE_OFFSET_39) == PAGE_OFFSET_39) {
-		va_bits = 39;
-	} else if ((stext_sym_addr & PAGE_OFFSET_42) == PAGE_OFFSET_42) {
-		va_bits = 42;
+	/*
+	 * Derive va_bits as per arch/arm64/Kconfig. Note that this is a
+	 * best case approximation at the moment, as there can be
+	 * inconsistencies in this calculation (for e.g., for 52-bit
+	 * kernel VA case, the 48th bit is set in * the _stext symbol).
+	 */
+	if ((stext_sym_addr & PAGE_OFFSET_48) == PAGE_OFFSET_48) {
+		va_bits = 48;
 	} else if ((stext_sym_addr & PAGE_OFFSET_47) == PAGE_OFFSET_47) {
 		va_bits = 47;
-	} else if ((stext_sym_addr & PAGE_OFFSET_48) == PAGE_OFFSET_48) {
-		va_bits = 48;
+	} else if ((stext_sym_addr & PAGE_OFFSET_42) == PAGE_OFFSET_42) {
+		va_bits = 42;
+	} else if ((stext_sym_addr & PAGE_OFFSET_39) == PAGE_OFFSET_39) {
+		va_bits = 39;
+	} else if ((stext_sym_addr & PAGE_OFFSET_36) == PAGE_OFFSET_36) {
+		va_bits = 36;
 	} else {
 		fprintf(stderr,
 			"Cannot find a proper _stext for calculating VA_BITS\n");
 		return -1;
 	}
 
-	dbgprintf("va_bits : %d\n", va_bits);
+	dbgprintf("va_bits : %d (guess from _stext)\n", va_bits);
 
 	return 0;
 }
@@ -911,34 +931,93 @@ static int get_va_bits(void)
 
 static int get_page_offset(void)
 {
-	int ret;
+	ulong page_end;
+	int vabits_min, ret;
+	unsigned long long stext_sym_addr = get_kernel_sym("_stext");
+
+	if (stext_sym_addr == 0) {
+		fprintf(stderr, "Can't get the symbol of _stext.\n");
+		return -1;
+	}
 
 	ret = get_va_bits();
 	if (ret < 0)
 		return ret;
 
-	page_offset = (0xffffffffffffffffUL) << (va_bits - 1);
-	dbgprintf("page_offset : %lx\n", page_offset);
+	if ((va_bits == 52) && get_kernel_sym("mem_section")) {
+		/*
+		 * Linux 5.4 through 5.10 have the following linear space:
+		 *   48-bit: 0xffff000000000000 - 0xffff7fffffffffff
+		 *   52-bit: 0xfff0000000000000 - 0xfff7ffffffffffff
+		 * and SYMBOL(mem_section) should be in linear space if
+		 * the kernel is configured with COMFIG_SPARSEMEM_EXTREME=y.
+		 */
+		if (get_kernel_sym("mem_section") & (1UL << (va_bits - 1)))
+			vabits_actual = 48;
+		else
+			vabits_actual = 52;
+		dbgprintf("vabits_actual : %d (guess from mem_section)\n", vabits_actual);
+	} else {
+		vabits_actual = va_bits;
+		dbgprintf("vabits_actual : %d (same as va_bits)\n", vabits_actual);
+	}
+
+
+	/*
+	 * See arch/arm64/include/asm/memory.h for more details of
+	 * the PAGE_OFFSET calculation.
+	 */
+	vabits_min = (va_bits > 48) ? 48 : va_bits;
+	page_end = -(1UL << (vabits_min - 1));
+
+	if (get_kernel_sym("stext_sym_addr") > page_end) {
+		flipped_va = 1;
+		page_offset = -(1UL << vabits_actual);
+	} else {
+		flipped_va = 0;
+		page_offset = -(1UL << (vabits_actual - 1));
+	}
+
+	dbgprintf("page_offset   : %lx (from page_end check)\n",
+		page_offset);
 
 	return 0;
 }
 
 /**
- * get_phys_offset_from_vmcoreinfo_pt_note - Helper for getting PHYS_OFFSET
- * from VMCOREINFO note inside 'kcore'.
+ * get_info_from_vmcoreinfo_pt_note - Helper for getting TCR_EL1_T1SZ
+ * from VMCOREINFO note inside 'kcore'. This helps us in calculating
+ * the vabits_actual info.
  */
 
-static int get_phys_offset_from_vmcoreinfo_pt_note(unsigned long *phys_offset)
+static int get_info_from_vmcoreinfo_pt_note(unsigned long *kimage_voffset, unsigned long *phys_offset, int *va_bits, int *vabits_actual)
 {
-	int fd, ret = 0;
+	int fd, tcr_el1_t1sz, ret = 0;
 
 	if ((fd = open("/proc/kcore", O_RDONLY)) < 0) {
 		fprintf(stderr, "Can't open (%s).\n", "/proc/kcore");
 		return EFAILED;
 	}
 
-	ret = read_phys_offset_elf_kcore(fd, phys_offset);
+	ret = read_ulong_info_elf_kcore(fd, KIMAGE_VOFFSET, kimage_voffset);
+	if (ret < 0)
+		goto out;
 
+	ret = read_ulong_info_elf_kcore(fd, PHYS_OFFSET, phys_offset);
+	if (ret < 0)
+		goto out;
+
+	ret = read_int_info_elf_kcore(fd, VA_BITS, va_bits);
+	if (ret < 0)
+		goto out;
+	
+	ret = read_int_info_elf_kcore(fd, TCR_EL1_T1SZ, &tcr_el1_t1sz);
+	if (ret < 0)
+		goto out;
+
+	*vabits_actual = 64 - tcr_el1_t1sz;
+
+out:
 	close(fd);
 	return ret;
 }
@@ -973,6 +1052,9 @@ int get_phys_base_from_pt_load(unsigned long *phys_offset)
 				&& phys_start != NOT_PADDR)
 			*phys_offset = phys_start -
 				(virt_start & ~page_offset);
+			dbgprintf("phys_base    : %lx (pt_load)\n",
+						*phys_offset);
+
 	}
 
 	close(fd);
@@ -1012,16 +1094,22 @@ int get_memory_ranges(struct memory_range **range, int *ranges,
 		 * a new PT_NOTE which carries the VMCOREINFO
 		 * information.
 		 * If the same is available, one should prefer the
-		 * same to retrieve 'PHYS_OFFSET' value exported by
+		 * same to retrieve 'PHYS_OFFSET', 'VA_BITS' and
+		 * 'TCR_EL1_T1SZ' values exported by
 		 * the kernel as this is now the standard interface
 		 * exposed by kernel for sharing machine specific
 		 * details with the userland.
 		 */
-		ret = get_phys_offset_from_vmcoreinfo_pt_note(&phys_offset);
+		ret = get_info_from_vmcoreinfo_pt_note(&kimage_voffset, &phys_offset, &va_bits, &vabits_actual);
 		if (!ret) {
 			if (phys_offset != UINT64_MAX)
 				set_phys_offset(phys_offset,
 						"vmcoreinfo pt_note");
+	
+			dbgprintf("va_bits: %d, vabits_actual: %d (method : vmcoreinfo pt_note)\n",
+				va_bits, vabits_actual);
+			dbgprintf("kimage_voffset %lx (method : vmcoreinfo pt_note)\n",
+				kimage_voffset);
 		} else {
 			/* If we are running on a older kernel,
 			 * try to retrieve the 'PHYS_OFFSET' value

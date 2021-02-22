@@ -23,12 +23,20 @@
 #include <inttypes.h>
 #include <ctype.h>
 
+enum elf_info_type {
+	KIMAGE_VOFFSET = 0,
+	PHYS_OFFSET,
+	VA_BITS,
+	TCR_EL1_T1SZ,
+};
+
 int get_pt_load(int idx,
 	unsigned long long *phys_start,
 	unsigned long long *phys_end,
 	unsigned long long *virt_start,
 	unsigned long long *virt_end);
-int read_phys_offset_elf_kcore(int fd, unsigned long *phys_off);
+int read_int_info_elf_kcore(int fd, enum elf_info_type info_type, int *info);
+int read_ulong_info_elf_kcore(int fd, enum elf_info_type info_type, unsigned long *info);
 int read_elf(int fd);
 void dump_dmesg(int fd, void (*handler)(char*, unsigned int));
 

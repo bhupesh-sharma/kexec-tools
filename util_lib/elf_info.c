@@ -70,7 +70,10 @@ static uint64_t log_offset_ts_nsec = UINT64_MAX;
 static uint16_t log_offset_len = UINT16_MAX;
 static uint16_t log_offset_text_len = UINT16_MAX;
 
+static uint64_t kimage_voffset = UINT64_MAX;
 static uint64_t phys_offset = UINT64_MAX;
+static int va_bits = INT_MAX;
+static int tcr_el1_t1sz = INT_MAX;
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 #define ELFDATANATIVE ELFDATA2LSB
@@ -101,20 +104,23 @@ static uint64_t file64_to_cpu(uint64_t val)
 	return val;
 }
 
-static uint64_t vaddr_to_offset(uint64_t vaddr)
+static uint64_t vaddr_to_offset(unsigned long long vaddr)
 {
 	/* Just hand the simple case where kexec gets
 	 * the virtual address on the program headers right.
 	 */
 	ssize_t i;
 	for (i = 0; i < ehdr.e_phnum; i++) {
+		fprintf(stderr, "i = %ld, vaddr = 0x%llx, phdr.p_vaddr = 0x%lx, "
+				"phdr.p_vaddr + phdr.p_memsz = 0x%lx, (vaddr - phdr.p_vaddr) + phdr.p_offset = 0x%llx\n",
+		       		i, vaddr, phdr[i].p_vaddr, phdr[i].p_vaddr + phdr[i].p_memsz, (vaddr - phdr[i].p_vaddr) + phdr[i].p_offset);
 		if (phdr[i].p_vaddr > vaddr)
 			continue;
 		if ((phdr[i].p_vaddr + phdr[i].p_memsz) <= vaddr)
 			continue;
 		return (vaddr - phdr[i].p_vaddr) + phdr[i].p_offset;
 	}
-	fprintf(stderr, "No program header covering vaddr 0x%llxfound kexec bug?\n",
+	fprintf(stderr, "No program header covering vaddr 0x%llx : found kexec bug?\n",
 		(unsigned long long)vaddr);
 	exit(30);
 }
@@ -537,6 +543,20 @@ void scan_vmcoreinfo(char *start, size_t size)
 			log_offset_text_len = strtoul(pos + strlen(str), NULL,
 							10);
 
+		/* Check for kimage_voffset number */
+		str = "NUMBER(kimage_voffset)=";
+		if (memcmp(str, pos, strlen(str)) == 0) {
+			kimage_voffset = strtoul(pos + strlen(str), &endp,
+							10);
+			if (strlen(endp) != 0)
+				kimage_voffset = strtoul(pos + strlen(str), &endp, 16);
+			if ((kimage_voffset == LONG_MAX) || strlen(endp) != 0) {
+				fprintf(stderr, "Invalid data %s\n",
+					pos);
+				break;
+			}
+		}
+
 		/* Check for PHYS_OFFSET number */
 		str = "NUMBER(PHYS_OFFSET)=";
 		if (memcmp(str, pos, strlen(str)) == 0) {
@@ -545,6 +565,34 @@ void scan_vmcoreinfo(char *start, size_t size)
 			if (strlen(endp) != 0)
 				phys_offset = strtoul(pos + strlen(str), &endp, 16);
 			if ((phys_offset == LONG_MAX) || strlen(endp) != 0) {
+				fprintf(stderr, "Invalid data %s\n",
+					pos);
+				break;
+			}
+		}
+
+		/* Check for VA_BITS number */
+		str = "NUMBER(VA_BITS)=";
+		if (memcmp(str, pos, strlen(str)) == 0) {
+			va_bits = strtoul(pos + strlen(str), &endp,
+							10);
+			if (strlen(endp) != 0)
+				va_bits = strtoul(pos + strlen(str), &endp, 16);
+			if ((va_bits == LONG_MAX) || strlen(endp) != 0) {
+				fprintf(stderr, "Invalid data %s\n",
+					pos);
+				break;
+			}
+		}
+
+		/* Check for TCR_EL1_T1SZ number */
+		str = "NUMBER(TCR_EL1_T1SZ)=";
+		if (memcmp(str, pos, strlen(str)) == 0) {
+			tcr_el1_t1sz = strtoul(pos + strlen(str), &endp,
+							10);
+			if (strlen(endp) != 0)
+				tcr_el1_t1sz = strtoul(pos + strlen(str), &endp, 16);
+			if ((tcr_el1_t1sz == LONG_MAX) || strlen(endp) != 0) {
 				fprintf(stderr, "Invalid data %s\n",
 					pos);
 				break;
@@ -1182,12 +1230,16 @@ static void dump_dmesg_lockless(int fd, void (*handler)(char*, unsigned int))
 
 void dump_dmesg(int fd, void (*handler)(char*, unsigned int))
 {
-	if (prb_vaddr)
+	if (prb_vaddr) {
+		fprintf(stderr, "Calling dump_dmesg_lockless\n");
 		dump_dmesg_lockless(fd, handler);
-	else if (log_first_idx_vaddr)
+	} else if (log_first_idx_vaddr) {
+		fprintf(stderr, "Calling dump_dmesg_structured\n");
 		dump_dmesg_structured(fd, handler);
-	else
+	} else {
+		fprintf(stderr, "Calling dump_dmesg_legacy\n");
 		dump_dmesg_legacy(fd, handler);
+	}
 }
 
 int read_elf(int fd)
@@ -1234,20 +1286,57 @@ int read_elf(int fd)
 	return 0;
 }
 
-int read_phys_offset_elf_kcore(int fd, unsigned long *phys_off)
+int read_int_info_elf_kcore(int fd, enum elf_info_type info_type, int *info)
 {
 	int ret;
 
-	*phys_off = ULONG_MAX;
+	ret = read_elf(fd);
+	if (!ret) {
+		/* If we have a valid 'int' info by now,
+		 * return it to the caller now.
+		 */
+		switch(info_type) {
+			case VA_BITS:
+				if (va_bits != INT_MAX)
+					*info = va_bits;
+				break;
+			case TCR_EL1_T1SZ:
+				if (tcr_el1_t1sz != INT_MAX)
+					*info = tcr_el1_t1sz;
+				break;
+			default:
+				break;
+		}
+		return ret;
+	}
+
+	return 2;
+}
+int read_ulong_info_elf_kcore(int fd, enum elf_info_type info_type, unsigned long *info)
+{
+	int ret;
 
 	ret = read_elf(fd);
 	if (!ret) {
-		/* If we have a valid 'PHYS_OFFSET' by now,
+		/* If we have a valid 'ulong' info by now,
 		 * return it to the caller now.
 		 */
-		if (phys_offset != UINT64_MAX) {
-			*phys_off = phys_offset;
-			return ret;
+		switch(info_type) {
+			case KIMAGE_VOFFSET:
+				if (kimage_voffset != UINT64_MAX) {
+					*info = kimage_voffset;
+					return ret;
+				}
+				break;
+
+			case PHYS_OFFSET:
+				if (phys_offset != UINT64_MAX) {
+					*info = phys_offset;
+					return ret;
+				}
+				break;
+			default:
+				break;
 		}
 	}
 
